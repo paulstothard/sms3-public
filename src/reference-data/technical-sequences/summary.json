@@ -1,0 +1,223 @@
+[
+  {
+    "id": "illumina-dna-pcr-free-tagmentation-adapter-forward",
+    "name": "Illumina DNA PCR-Free tagmentation adapter forward",
+    "class": "sequencing-adapter",
+    "syntax": "exact",
+    "pattern": "CTGTCTCTTATACACATCT",
+    "source": {
+      "name": "Illumina adapter trimming guidance",
+      "version": "Knowledge Article 1314",
+      "accessDate": "2026-05-02"
+    },
+    "description": "First sequence in Illumina DNA PCR-Free Prep tagmentation adapter guidance."
+  },
+  {
+    "id": "illumina-dna-pcr-free-tagmentation-adapter-reverse",
+    "name": "Illumina DNA PCR-Free tagmentation adapter reverse",
+    "class": "sequencing-adapter",
+    "syntax": "exact",
+    "pattern": "ATGTGTATAAGAGACA",
+    "source": {
+      "name": "Illumina adapter trimming guidance",
+      "version": "Knowledge Article 1314",
+      "accessDate": "2026-05-02"
+    },
+    "description": "Second sequence in Illumina DNA PCR-Free Prep tagmentation adapter guidance."
+  },
+  {
+    "id": "illumina-nextera-tagmentation-adapter",
+    "name": "Illumina Nextera/tagmentation adapter",
+    "class": "sequencing-adapter",
+    "syntax": "exact",
+    "pattern": "CTGTCTCTTATACACATCT",
+    "source": {
+      "name": "Illumina adapter trimming guidance",
+      "version": "Knowledge Article 1314",
+      "accessDate": "2026-05-02"
+    },
+    "description": "Recommended adapter trimming sequence for several Nextera/tagmentation-based kits."
+  },
+  {
+    "id": "illumina-scriptseq-truseq-methylation-read-1-adapter",
+    "name": "Illumina ScriptSeq/TruSeq methylation Read 1 adapter",
+    "class": "sequencing-adapter",
+    "syntax": "exact",
+    "pattern": "AGATCGGAAGAGCACACGTCTGAAC",
+    "source": {
+      "name": "Illumina adapter trimming guidance",
+      "version": "Knowledge Article 1314",
+      "accessDate": "2026-05-02"
+    },
+    "description": "Recommended ScriptSeq/TruSeq DNA methylation Read 1 adapter trimming sequence."
+  },
+  {
+    "id": "illumina-scriptseq-truseq-methylation-read-2-adapter",
+    "name": "Illumina ScriptSeq/TruSeq methylation Read 2 adapter",
+    "class": "sequencing-adapter",
+    "syntax": "exact",
+    "pattern": "AGATCGGAAGAGCGTCGTGTAGGGA",
+    "source": {
+      "name": "Illumina adapter trimming guidance",
+      "version": "Knowledge Article 1314",
+      "accessDate": "2026-05-02"
+    },
+    "description": "Recommended ScriptSeq/TruSeq DNA methylation Read 2 adapter trimming sequence."
+  },
+  {
+    "id": "illumina-stranded-rna-ligation-adapter",
+    "name": "Illumina stranded RNA ligation adapter",
+    "class": "sequencing-adapter",
+    "syntax": "exact",
+    "pattern": "ACTGTCTCTTATACACATCT",
+    "source": {
+      "name": "Illumina adapter trimming guidance",
+      "version": "Knowledge Article 1314",
+      "accessDate": "2026-05-02"
+    },
+    "description": "Recommended adapter trimming sequence for Illumina stranded mRNA and total RNA ligation workflows."
+  },
+  {
+    "id": "illumina-truseq-read-1-adapter",
+    "name": "Illumina TruSeq Read 1 adapter",
+    "class": "sequencing-adapter",
+    "syntax": "exact",
+    "pattern": "AGATCGGAAGAGCACACGTCTGAACTCCAGTCA",
+    "source": {
+      "name": "Illumina adapter trimming guidance",
+      "version": "Knowledge Article 1314",
+      "accessDate": "2026-05-02"
+    },
+    "description": "Recommended TruSeq single/CD index Read 1 adapter trimming sequence."
+  },
+  {
+    "id": "illumina-truseq-read-2-adapter",
+    "name": "Illumina TruSeq Read 2 adapter",
+    "class": "sequencing-adapter",
+    "syntax": "exact",
+    "pattern": "AGATCGGAAGAGCGTCGTGTAGGGAAAGAGTGT",
+    "source": {
+      "name": "Illumina adapter trimming guidance",
+      "version": "Knowledge Article 1314",
+      "accessDate": "2026-05-02"
+    },
+    "description": "Recommended TruSeq single/CD index Read 2 adapter trimming sequence."
+  },
+  {
+    "id": "addgene-m13-forward-21",
+    "name": "M13 Forward (-21)",
+    "class": "sequencing-primer",
+    "syntax": "exact",
+    "pattern": "TGTAAAACGACGGCCAGT",
+    "source": {
+      "name": "Addgene sequencing primers",
+      "version": "accessed 2026-05",
+      "accessDate": "2026-05-02"
+    },
+    "description": "Common M13/lacZ forward Sanger sequencing primer."
+  },
+  {
+    "id": "addgene-m13-forward-40",
+    "name": "M13 Forward (-40)",
+    "class": "sequencing-primer",
+    "syntax": "exact",
+    "pattern": "GTTTTCCCAGTCACGAC",
+    "source": {
+      "name": "Addgene sequencing primers",
+      "version": "accessed 2026-05",
+      "accessDate": "2026-05-02"
+    },
+    "description": "Common M13/lacZ forward Sanger sequencing primer."
+  },
+  {
+    "id": "addgene-m13-puc-forward",
+    "name": "M13/pUC Forward",
+    "class": "sequencing-primer",
+    "syntax": "exact",
+    "pattern": "CCCAGTCACGACGTTGTAAAACG",
+    "source": {
+      "name": "Addgene sequencing primers",
+      "version": "accessed 2026-05",
+      "accessDate": "2026-05-02"
+    },
+    "description": "Common M13/pUC forward Sanger sequencing primer."
+  },
+  {
+    "id": "addgene-m13-puc-reverse",
+    "name": "M13/pUC Reverse",
+    "class": "sequencing-primer",
+    "syntax": "exact",
+    "pattern": "AGCGGATAACAATTTCACACAGG",
+    "source": {
+      "name": "Addgene sequencing primers",
+      "version": "accessed 2026-05",
+      "accessDate": "2026-05-02"
+    },
+    "description": "Common M13/pUC reverse Sanger sequencing primer."
+  },
+  {
+    "id": "addgene-m13-reverse",
+    "name": "M13 Reverse",
+    "class": "sequencing-primer",
+    "syntax": "exact",
+    "pattern": "CAGGAAACAGCTATGAC",
+    "source": {
+      "name": "Addgene sequencing primers",
+      "version": "accessed 2026-05",
+      "accessDate": "2026-05-02"
+    },
+    "description": "Common M13/lacZ reverse Sanger sequencing primer."
+  },
+  {
+    "id": "addgene-sp6-promoter-primer",
+    "name": "SP6 promoter primer",
+    "class": "sequencing-primer",
+    "syntax": "exact",
+    "pattern": "ATTTAGGTGACACTATAG",
+    "source": {
+      "name": "Addgene sequencing primers",
+      "version": "accessed 2026-05",
+      "accessDate": "2026-05-02"
+    },
+    "description": "Common SP6 promoter Sanger sequencing primer."
+  },
+  {
+    "id": "addgene-t3-promoter-primer",
+    "name": "T3 promoter primer",
+    "class": "sequencing-primer",
+    "syntax": "exact",
+    "pattern": "GCAATTAACCCTCACTAAAGG",
+    "source": {
+      "name": "Addgene sequencing primers",
+      "version": "accessed 2026-05",
+      "accessDate": "2026-05-02"
+    },
+    "description": "Common T3 promoter Sanger sequencing primer."
+  },
+  {
+    "id": "addgene-t7-promoter-primer",
+    "name": "T7 promoter primer",
+    "class": "sequencing-primer",
+    "syntax": "exact",
+    "pattern": "TAATACGACTCACTATAGGG",
+    "source": {
+      "name": "Addgene sequencing primers",
+      "version": "accessed 2026-05",
+      "accessDate": "2026-05-02"
+    },
+    "description": "Common T7 promoter Sanger sequencing primer."
+  },
+  {
+    "id": "illumina-truseq-small-rna-adapter",
+    "name": "Illumina TruSeq small RNA adapter",
+    "class": "small-rna-adapter",
+    "syntax": "exact",
+    "pattern": "TGGAATTCTCGGGTGCCAAGG",
+    "source": {
+      "name": "Illumina adapter trimming guidance",
+      "version": "Knowledge Article 1314",
+      "accessDate": "2026-05-02"
+    },
+    "description": "Recommended TruSeq Small RNA adapter trimming sequence."
+  }
+]
