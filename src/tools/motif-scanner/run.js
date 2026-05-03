@@ -5,9 +5,9 @@ import {
   scanMotifRecordsWithContext
 } from "../../core/motif-scanner.js";
 import { makeTableStream, makeTextStream, makeToolResult } from "../../core/workflow.js";
-import dnaRnaMotifs from "../../reference-data/motifs/dna-rna-motifs.json" with { type: "json" };
-import proteinMotifs from "../../reference-data/motifs/protein-motifs.json" with { type: "json" };
-import motifProvenance from "../../reference-data/motifs/provenance.json" with { type: "json" };
+import dnaRnaMotifs from "../../reference-data/motifs/dna-rna-motifs.js";
+import proteinMotifs from "../../reference-data/motifs/protein-motifs.js";
+import motifProvenance from "../../reference-data/motifs/provenance.js";
 
 function getSelectedMotifs(motifs, options = {}) {
   return motifs.filter((motif) => {

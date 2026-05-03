@@ -3,14 +3,14 @@ import { ToolWorkerClient } from "./worker-client.js";
 import { geneticCodes, getCodonsForCode } from "../core/genetic-code.js";
 import { runWorkflow, validateWorkflowDefinition } from "../core/workflow-engine.js";
 import { codonUsageReferences } from "../reference-data/codon-usage/references.js";
-import dnaRnaMotifs from "../reference-data/motifs/dna-rna-motifs.json" with { type: "json" };
-import proteinMotifs from "../reference-data/motifs/protein-motifs.json" with { type: "json" };
-import motifProvenance from "../reference-data/motifs/provenance.json" with { type: "json" };
-import technicalSequenceSummary from "../reference-data/technical-sequences/summary.json" with { type: "json" };
-import technicalSequenceProvenance from "../reference-data/technical-sequences/provenance.json" with { type: "json" };
-import vectorContaminationSummary from "../reference-data/vector-contamination/summary.json" with { type: "json" };
-import vectorContaminationProvenance from "../reference-data/vector-contamination/provenance.json" with { type: "json" };
-import referenceDataManifest from "../reference-data/datasets.json" with { type: "json" };
+import dnaRnaMotifs from "../reference-data/motifs/dna-rna-motifs.js";
+import proteinMotifs from "../reference-data/motifs/protein-motifs.js";
+import motifProvenance from "../reference-data/motifs/provenance.js";
+import technicalSequenceSummary from "../reference-data/technical-sequences/summary.js";
+import technicalSequenceProvenance from "../reference-data/technical-sequences/provenance.js";
+import vectorContaminationSummary from "../reference-data/vector-contamination/summary.js";
+import vectorContaminationProvenance from "../reference-data/vector-contamination/provenance.js";
+import referenceDataManifest from "../reference-data/datasets.js";
 
 const state = {
   selectedTool: tools[0],

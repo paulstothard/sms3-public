@@ -1,6 +1,6 @@
 import { motifMatchTableColumns } from "../../core/motif-scanner.js";
-import dnaRnaMotifs from "../../reference-data/motifs/dna-rna-motifs.json" with { type: "json" };
-import proteinMotifs from "../../reference-data/motifs/protein-motifs.json" with { type: "json" };
+import dnaRnaMotifs from "../../reference-data/motifs/dna-rna-motifs.js";
+import proteinMotifs from "../../reference-data/motifs/protein-motifs.js";
 
 function makeClassChoices(motifs) {
   return [

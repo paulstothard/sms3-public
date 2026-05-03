@@ -1,5 +1,5 @@
 import { technicalSequenceTableColumns } from "./run.js";
-import technicalSequenceSummary from "../../reference-data/technical-sequences/summary.json" with { type: "json" };
+import technicalSequenceSummary from "../../reference-data/technical-sequences/summary.js";
 
 function makeClassChoices(records) {
   return [

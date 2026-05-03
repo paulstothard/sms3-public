@@ -1,0 +1,88 @@
+export const referenceDataManifest = {
+  "schemaVersion": 1,
+  "datasets": [
+    {
+      "id": "codon-usage",
+      "name": "Codon usage references",
+      "fetchScript": "reference-data:fetch:codon-usage",
+      "buildScript": "reference-data:build:codon-usage",
+      "requiresNetworkForFetch": true,
+      "offlineBuild": true,
+      "sourceDirectory": "scripts/reference-data/sources/codon-usage",
+      "generatedFiles": [
+        "src/reference-data/codon-usage/references.json",
+        "src/reference-data/codon-usage/references.js",
+        "src/reference-data/codon-usage/provenance.json"
+      ],
+      "validationTest": "test/reference-data-codon-usage.test.js",
+      "notes": "Generated from local source records plus a synthetic equal-synonymous seed reference."
+    },
+    {
+      "id": "motifs",
+      "name": "DNA/RNA and protein motif references",
+      "fetchScript": null,
+      "buildScript": "reference-data:build:motifs",
+      "requiresNetworkForFetch": false,
+      "offlineBuild": true,
+      "sourceDirectory": null,
+      "generatedFiles": [
+        "src/reference-data/motifs/dna-rna-motifs.json",
+        "src/reference-data/motifs/protein-motifs.json",
+        "src/reference-data/motifs/provenance.json"
+      ],
+      "validationTest": "test/reference-data-motifs.test.js",
+      "notes": "Currently a small curated seed set; external imports need source-specific build code and redistribution review."
+    },
+    {
+      "id": "technical-sequences",
+      "name": "Technical sequence references",
+      "fetchScript": null,
+      "buildScript": "reference-data:build:technical-sequences",
+      "requiresNetworkForFetch": false,
+      "offlineBuild": true,
+      "sourceDirectory": null,
+      "generatedFiles": [
+        "src/reference-data/technical-sequences/sequences.json",
+        "src/reference-data/technical-sequences/summary.json",
+        "src/reference-data/technical-sequences/provenance.json"
+      ],
+      "validationTest": "test/reference-data-technical-sequences.test.js",
+      "notes": "Curated common primers/adapters with provenance; full records are lazy-loaded by the worker-backed scanner."
+    },
+    {
+      "id": "restriction-enzymes",
+      "name": "Restriction enzyme references",
+      "fetchScript": null,
+      "buildScript": "reference-data:build:restriction-enzymes",
+      "requiresNetworkForFetch": false,
+      "offlineBuild": true,
+      "sourceDirectory": null,
+      "generatedFiles": [
+        "src/reference-data/restriction-enzymes/records.json",
+        "src/reference-data/restriction-enzymes/records.js",
+        "src/reference-data/restriction-enzymes/provenance.json"
+      ],
+      "validationTest": "test/reference-data-restriction-enzymes.test.js",
+      "notes": "Small curated common Type II enzyme seed set; full REBASE-style imports need source-specific build code and redistribution review."
+    },
+    {
+      "id": "vector-contamination",
+      "name": "Vector contamination references",
+      "fetchScript": "reference-data:fetch:vector-contamination",
+      "buildScript": "reference-data:build:vector-contamination",
+      "requiresNetworkForFetch": true,
+      "offlineBuild": true,
+      "sourceDirectory": "scripts/reference-data/sources/vector-contamination",
+      "generatedFiles": [
+        "src/reference-data/vector-contamination/summary.json",
+        "src/reference-data/vector-contamination/records.json",
+        "src/reference-data/vector-contamination/index.json",
+        "src/reference-data/vector-contamination/provenance.json"
+      ],
+      "validationTest": "test/reference-data-vector-contamination.test.js",
+      "notes": "Generated from NCBI UniVec_Core when source files are available; otherwise rebuilds index from checked-in normalized records."
+    }
+  ]
+};
+
+export default referenceDataManifest;

@@ -1,0 +1,14 @@
+export const technicalSequenceProvenance = {
+  "dataset": "SMS3 technical sequence scanner seed data",
+  "version": "2026-05 seed",
+  "accessDate": "2026-05-02",
+  "description": "Small cited collection of common sequencing primers and adapter-trimming sequences used to develop the technical sequence scanner.",
+  "license": "Mixed public reference sequences from cited sources. Review source-specific redistribution requirements before bundling larger derived datasets.",
+  "notes": [
+    "These records are intentionally small and focused on common technical sequences.",
+    "The scanner performs exact or IUPAC full-sequence matching, not error-tolerant trimming.",
+    "For production FASTQ adapter trimming, use dedicated tools such as Cutadapt or fastp."
+  ]
+};
+
+export default technicalSequenceProvenance;

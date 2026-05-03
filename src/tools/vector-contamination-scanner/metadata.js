@@ -1,5 +1,5 @@
 import { vectorContaminationTableColumns } from "../../core/vector-contamination-scanner.js";
-import vectorSummary from "../../reference-data/vector-contamination/summary.json" with { type: "json" };
+import vectorSummary from "../../reference-data/vector-contamination/summary.js";
 
 export const vectorContaminationScannerMetadata = {
   id: "vector-contamination-scanner",
