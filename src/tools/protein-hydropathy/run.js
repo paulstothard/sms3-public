@@ -7,6 +7,8 @@ import {
 } from "../../core/sequence.js";
 import { makeTableStream, makeTextStream, makeToolResult } from "../../core/workflow.js";
 
+const SVG_PLOT_WINDOW_THRESHOLD = 5000;
+
 export const proteinHydropathyTableColumns = [
   { id: "record", label: "Record", type: "string" },
   { id: "position", label: "Position", type: "number" },
@@ -248,10 +250,38 @@ function makeSvgPlot(records) {
   return parts.join("\n");
 }
 
+function makePlaceholderSvg(title, lines) {
+  const safeLines = lines.map((line) => escapeXml(line));
+  const height = 120 + safeLines.length * 20;
+  return [
+    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 ${height}" role="img" aria-label="${escapeXml(title)}">`,
+    "<style>",
+    ".title{font:700 18px system-ui,sans-serif;fill:#263238}",
+    ".note{font:12px system-ui,sans-serif;fill:#5c6b75}",
+    "</style>",
+    `<rect x="0" y="0" width="760" height="${height}" fill="white"/>`,
+    `<text class="title" x="24" y="34">${escapeXml(title)}</text>`,
+    ...safeLines.map((line, index) => `<text class="note" x="24" y="${66 + index * 20}">${line}</text>`),
+    "</svg>"
+  ].join("");
+}
+
 function makeHydropathyResult({ analyzedRecords, warnings, recordsProcessed, basesProcessed, charactersRemoved, outputFormat }) {
   const tableRows = makeTableRows(analyzedRecords);
   const reportOutput = makeReport(analyzedRecords);
-  const svgPlot = makeSvgPlot(analyzedRecords);
+  let svgPlot = "";
+  if (outputFormat === "svg-plot" && tableRows.length <= SVG_PLOT_WINDOW_THRESHOLD) {
+    svgPlot = makeSvgPlot(analyzedRecords);
+  } else if (outputFormat === "svg-plot") {
+    warnings.push(
+      `SVG hydropathy plot was not drawn because this run has ${tableRows.length} windows. Use TSV table output or a larger window size for dense analyses.`
+    );
+    svgPlot = makePlaceholderSvg("Protein hydropathy plot not drawn", [
+      `${tableRows.length} windows across ${recordsProcessed} records.`,
+      "The graphical plot is suppressed for dense outputs to keep the browser responsive.",
+      "Use the table output or analyze fewer residues for a drawable plot."
+    ]);
+  }
   const output =
     outputFormat === "tsv" ? makeTsv(tableRows) : outputFormat === "svg-plot" ? svgPlot : reportOutput;
 
@@ -273,7 +303,7 @@ function makeHydropathyResult({ analyzedRecords, warnings, recordsProcessed, bas
     streams: {
       report: makeTextStream(reportOutput, "text/plain"),
       table: makeTableStream(proteinHydropathyTableColumns, tableRows, "protein-hydropathy"),
-      plot: makeTextStream(svgPlot, "image/svg+xml")
+      ...(outputFormat === "svg-plot" ? { plot: makeTextStream(svgPlot, "image/svg+xml") } : {})
     },
     visual: outputFormat === "svg-plot" ? { svg: svgPlot } : undefined
   });

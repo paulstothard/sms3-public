@@ -37,7 +37,9 @@ export const technicalSequenceScannerMetadata = {
       { id: "sequenceRecords", kind: "sequence-records", alphabet: "dna-rna" }
     ],
     outputs: [
+      { id: "primary", kind: "text", mediaType: "text/plain" },
       { id: "report", kind: "text", mediaType: "text/plain" },
+      { id: "textMap", kind: "text", mediaType: "text/plain" },
       {
         id: "table",
         kind: "table",
@@ -107,11 +109,12 @@ export const technicalSequenceScannerMetadata = {
     {
       id: "outputFormat",
       type: "radio",
-      label: "Copy/download format",
+      label: "Output format",
       defaultValue: "report",
       choices: [
         { value: "report", label: "Summary report" },
-        { value: "tsv", label: "TSV table" }
+        { value: "tsv", label: "TSV table" },
+        { value: "text-map", label: "Text annotation map" }
       ]
     },
     {

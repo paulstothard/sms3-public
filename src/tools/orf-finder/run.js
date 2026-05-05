@@ -3,6 +3,10 @@ import { getGeneticCode, getStartCodons, getStopCodons, makeCodonMap } from "../
 import { cleanDnaRnaSequence, complementDnaRnaSequence } from "../../core/sequence.js";
 import { makeTableStream, makeTextStream, makeToolResult } from "../../core/workflow.js";
 
+const LARGE_TEXT_ORF_THRESHOLD = 2000;
+const SVG_OVERVIEW_ORF_THRESHOLD = 1500;
+const SVG_OVERVIEW_BASE_THRESHOLD = 500000;
+
 const FORWARD_FRAMES = [
   { label: "+1", strand: "+", offset: 0 },
   { label: "+2", strand: "+", offset: 1 },
@@ -444,6 +448,25 @@ function makeReport(records) {
   return lines.join("\n").trimEnd();
 }
 
+function makeSummaryReport(records) {
+  const lines = ["ORF finder", ""];
+
+  for (const record of records) {
+    const completeCount = record.orfs.filter((orf) => orf.complete).length;
+    const partialCount = record.orfs.length - completeCount;
+    const longest = record.orfs.reduce((max, orf) => Math.max(max, orf.aaLength), 0);
+    lines.push(`${record.title} ORFs`);
+    lines.push(`ORFs found: ${record.orfs.length}`);
+    lines.push(`Complete ORFs: ${completeCount}`);
+    lines.push(`Partial ORFs: ${partialCount}`);
+    lines.push(`Longest ORF: ${longest} aa`);
+    lines.push("");
+  }
+
+  lines.push(`Total ORFs: ${records.reduce((sum, record) => sum + record.orfs.length, 0)}`);
+  return lines.join("\n").trimEnd();
+}
+
 function makeFastaHeader(recordTitle, index, orf) {
   return `record=${recordTitle} orf=${index} strand=${orf.strand} frame=${orf.frame} start=${orf.start} end=${orf.end} aa_length=${orf.aaLength} complete=${orf.complete ? "yes" : "no"}`;
 }
@@ -529,20 +552,20 @@ function makeSvgOverview(records) {
   return parts.join("\n");
 }
 
-function makeOutput(records, options) {
-  if (options.outputFormat === "tsv") {
-    return makeTsv(records);
-  }
-  if (options.outputFormat === "nucleotide-fasta") {
-    return makeNucleotideFasta(records);
-  }
-  if (options.outputFormat === "protein-fasta") {
-    return makeProteinFasta(records, options.includeStopInProtein === true);
-  }
-  if (options.outputFormat === "svg-overview") {
-    return makeSvgOverview(records);
-  }
-  return makeReport(records);
+function makePlaceholderSvg(title, lines) {
+  const safeLines = lines.map((line) => escapeXml(line));
+  const height = 120 + safeLines.length * 20;
+  return [
+    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 ${height}" role="img" aria-label="${escapeXml(title)}">`,
+    "<style>",
+    ".title{font:700 18px system-ui,sans-serif;fill:#263238}",
+    ".note{font:12px system-ui,sans-serif;fill:#5c6b75}",
+    "</style>",
+    `<rect x="0" y="0" width="760" height="${height}" fill="white"/>`,
+    `<text class="title" x="24" y="34">${escapeXml(title)}</text>`,
+    ...safeLines.map((line, index) => `<text class="note" x="24" y="${66 + index * 20}">${line}</text>`),
+    "</svg>"
+  ].join("");
 }
 
 function makeOrfRows(records) {
@@ -607,12 +630,44 @@ function normalizeOutputFormat(outputFormat) {
 
 function makeOrfFinderResult({ analyzedRecords, warnings, recordsProcessed, basesProcessed, charactersRemoved, options }) {
   const outputFormat = normalizeOutputFormat(options.outputFormat);
-  const output = makeOutput(analyzedRecords, { ...options, outputFormat });
-  const reportOutput = makeReport(analyzedRecords);
-  const tsvOutput = makeTsv(analyzedRecords);
-  const nucleotideFastaOutput = makeNucleotideFasta(analyzedRecords);
-  const proteinFastaOutput = makeProteinFasta(analyzedRecords, options.includeStopInProtein === true);
-  const svgOverviewOutput = makeSvgOverview(analyzedRecords);
+  const totalOrfs = analyzedRecords.reduce((sum, record) => sum + record.orfs.length, 0);
+  const useSummaryReport = totalOrfs > LARGE_TEXT_ORF_THRESHOLD;
+  if (useSummaryReport && outputFormat === "report") {
+    warnings.push(
+      `Detailed ORF report rows were summarized because this run found ${totalOrfs} ORFs. Use TSV table output for the full hit table.`
+    );
+  }
+  const reportOutput = useSummaryReport ? makeSummaryReport(analyzedRecords) : makeReport(analyzedRecords);
+  const tsvOutput = outputFormat === "tsv" ? makeTsv(analyzedRecords) : "";
+  const nucleotideFastaOutput = outputFormat === "nucleotide-fasta" ? makeNucleotideFasta(analyzedRecords) : "";
+  const proteinFastaOutput = outputFormat === "protein-fasta"
+    ? makeProteinFasta(analyzedRecords, options.includeStopInProtein === true)
+    : "";
+  const shouldDrawSvg = outputFormat === "svg-overview" &&
+    totalOrfs <= SVG_OVERVIEW_ORF_THRESHOLD &&
+    basesProcessed <= SVG_OVERVIEW_BASE_THRESHOLD;
+  let svgOverviewOutput = "";
+  if (shouldDrawSvg) {
+    svgOverviewOutput = makeSvgOverview(analyzedRecords);
+  } else if (outputFormat === "svg-overview") {
+    warnings.push(
+      `SVG ORF overview was not drawn because this run has ${totalOrfs} ORFs across ${basesProcessed} bases. Use table output or stricter ORF filters for dense analyses.`
+    );
+    svgOverviewOutput = makePlaceholderSvg("ORF overview not drawn", [
+      `${totalOrfs} ORFs across ${basesProcessed} bases.`,
+      "The graphical overview is suppressed for dense outputs to keep the browser responsive.",
+      "Use the ORF table or raise the minimum amino acid length for a drawable overview."
+    ]);
+  }
+  const output = outputFormat === "tsv"
+    ? tsvOutput
+    : outputFormat === "nucleotide-fasta"
+      ? nucleotideFastaOutput
+      : outputFormat === "protein-fasta"
+        ? proteinFastaOutput
+        : outputFormat === "svg-overview"
+          ? svgOverviewOutput
+          : reportOutput;
 
   return makeToolResult({
     output,
@@ -626,12 +681,12 @@ function makeOrfFinderResult({ analyzedRecords, warnings, recordsProcessed, base
     basesProcessed,
     charactersRemoved,
     streams: {
-      report: makeTextStream(reportOutput, "text/plain"),
-      tsv: makeTextStream(tsvOutput, "text/tab-separated-values"),
+      ...(outputFormat === "report" ? { report: makeTextStream(reportOutput, "text/plain") } : {}),
+      ...(outputFormat === "tsv" ? { tsv: makeTextStream(tsvOutput, "text/tab-separated-values") } : {}),
       table: makeTableStream(orfTableColumns, makeOrfRows(analyzedRecords), "orf-finder"),
-      nucleotideFasta: makeTextStream(nucleotideFastaOutput, "text/x-fasta"),
-      proteinFasta: makeTextStream(proteinFastaOutput, "text/x-fasta"),
-      overview: makeTextStream(svgOverviewOutput, "image/svg+xml"),
+      ...(outputFormat === "nucleotide-fasta" ? { nucleotideFasta: makeTextStream(nucleotideFastaOutput, "text/x-fasta") } : {}),
+      ...(outputFormat === "protein-fasta" ? { proteinFasta: makeTextStream(proteinFastaOutput, "text/x-fasta") } : {}),
+      ...(outputFormat === "svg-overview" ? { overview: makeTextStream(svgOverviewOutput, "image/svg+xml") } : {}),
       orfRecords: {
         kind: "orf-records",
         schema: "orf-finder",

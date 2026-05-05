@@ -101,19 +101,42 @@ export function findPatternMatches(sequence, pattern, options = {}) {
   const matches = [];
 
   if (allowOverlaps) {
-    for (let index = 0; index < sequence.length; index += 1) {
-      const match = regex.exec(sequence.slice(index));
-      if (!match || match.index !== 0) {
-        continue;
+    if (options.patternMode === "regex") {
+      const stickyFlags = `${regex.flags.replace(/[gy]/g, "")}y`;
+      const stickyRegex = new RegExp(regex.source, stickyFlags);
+      for (let index = 0; index < sequence.length; index += 1) {
+        stickyRegex.lastIndex = index;
+        const match = stickyRegex.exec(sequence);
+        if (!match) {
+          continue;
+        }
+        if (match[0].length === 0) {
+          throw new Error("Pattern matched zero characters.");
+        }
+        matches.push({
+          start: index + 1,
+          end: index + match[0].length,
+          length: match[0].length,
+          matchedText: match[0]
+        });
       }
-      if (match[0].length === 0) {
+      return matches;
+    }
+
+    const globalFlags = `${regex.flags.replaceAll("g", "")}g`;
+    const lookaheadRegex = new RegExp(`(?=(${regex.source}))`, globalFlags);
+    let match;
+    while ((match = lookaheadRegex.exec(sequence)) !== null) {
+      const matchedText = match[1] ?? "";
+      lookaheadRegex.lastIndex = match.index + 1;
+      if (matchedText.length === 0) {
         throw new Error("Pattern matched zero characters.");
       }
       matches.push({
-        start: index + 1,
-        end: index + match[0].length,
-        length: match[0].length,
-        matchedText: sequence.slice(index, index + match[0].length)
+        start: match.index + 1,
+        end: match.index + matchedText.length,
+        length: matchedText.length,
+        matchedText
       });
     }
     return matches;

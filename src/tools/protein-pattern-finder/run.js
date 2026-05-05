@@ -1,6 +1,7 @@
 import { parseSequenceInput } from "../../core/fasta.js";
 import { findPatternMatches, makePatternRegex } from "../../core/pattern.js";
 import { cleanProteinSequence, makeSequenceContext } from "../../core/sequence.js";
+import { renderTextAnnotationMap } from "../../core/text-annotation-map.js";
 import { makeTableStream, makeTextStream, makeToolResult } from "../../core/workflow.js";
 
 export const proteinPatternFinderTableColumns = [
@@ -90,6 +91,20 @@ function makeTsv(rows) {
   ].join("\n");
 }
 
+function makeTextMap(records) {
+  return renderTextAnnotationMap(records.map((record) => ({
+    title: record.title,
+    sequence: record.sequence,
+    annotations: record.matches.map((match, index) => ({
+      start: match.start,
+      end: match.end,
+      label: `m${index + 1}`
+    }))
+  })), {
+    width: 60
+  });
+}
+
 export function runProteinPatternFinder(input, options = {}) {
   const records = parseSequenceInput(input, "sequence");
   const warnings = [];
@@ -165,8 +180,9 @@ export function runProteinPatternFinder(input, options = {}) {
   const tableRows = makeRows(analyzedRecords);
   const matchedRegions = makeMatchedRegionRecords(analyzedRecords);
   const reportOutput = makeReport(analyzedRecords, pattern, options);
-  const outputFormat = options.outputFormat === "tsv" ? "tsv" : "report";
-  const output = outputFormat === "tsv" ? makeTsv(tableRows) : reportOutput;
+  const outputFormat = options.outputFormat === "tsv" || options.outputFormat === "text-map" ? options.outputFormat : "report";
+  const textMap = outputFormat === "text-map" ? makeTextMap(analyzedRecords) : "";
+  const output = outputFormat === "tsv" ? makeTsv(tableRows) : outputFormat === "text-map" ? textMap : reportOutput;
 
   return makeToolResult({
     output,
@@ -183,6 +199,7 @@ export function runProteinPatternFinder(input, options = {}) {
     charactersRemoved,
     streams: {
       report: makeTextStream(reportOutput, "text/plain"),
+      ...(outputFormat === "text-map" ? { textMap: makeTextStream(textMap, "text/plain") } : {}),
       table: makeTableStream(proteinPatternFinderTableColumns, tableRows, "protein-pattern-finder"),
       matchedRegions: {
         kind: "sequence-records",

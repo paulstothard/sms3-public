@@ -9,6 +9,9 @@ export const dnaRnaPatternFinderMetadata = {
     "Find plain-text, IUPAC, or regular-expression DNA/RNA motifs on one or both strands.",
   inputType: "DNA/RNA sequence",
   outputType: "Match report, table",
+  runInWorker: true,
+  workerModule: "../tools/dna-rna-pattern-finder/run.js",
+  workerExport: "runDnaRnaPatternFinderWorker",
   workflow: {
     inputs: [
       { id: "input", kind: "text", mediaType: "text/plain" },
@@ -17,6 +20,7 @@ export const dnaRnaPatternFinderMetadata = {
     outputs: [
       { id: "primary", kind: "text", mediaType: "text/plain" },
       { id: "report", kind: "text", mediaType: "text/plain" },
+      { id: "textMap", kind: "text", mediaType: "text/plain" },
       { id: "table", kind: "table", schema: "dna-rna-pattern-finder", columns: dnaRnaPatternFinderTableColumns },
       { id: "matchedRegions", kind: "sequence-records", alphabet: "dna-rna", schema: "dna-rna-pattern-finder" },
       { id: "warnings", kind: "warnings" }
@@ -59,10 +63,11 @@ export const dnaRnaPatternFinderMetadata = {
     {
       id: "outputFormat",
       type: "radio",
-      label: "Copy/download format",
+      label: "Output format",
       defaultValue: "report",
       choices: [
         { value: "report", label: "Summary report" },
+        { value: "text-map", label: "Text annotation map" },
         { value: "tsv", label: "TSV table" }
       ]
     },

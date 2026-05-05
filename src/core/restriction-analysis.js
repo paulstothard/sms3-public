@@ -228,6 +228,15 @@ function makeSvgScaffold(width, height, title, extraStyles = []) {
   ];
 }
 
+function pushLinearFragmentSegment(parts, { x1, x2, y, label, labelY = y + 26 }) {
+  const fragmentWidth = Math.max(1, x2 - x1);
+  parts.push(`<rect class="fragment" x="${x1.toFixed(2)}" y="${y - 6}" width="${fragmentWidth.toFixed(2)}" height="12"/>`);
+  if (label && fragmentWidth >= 48) {
+    parts.push(`<text class="fragment-label" x="${((x1 + x2) / 2).toFixed(2)}" y="${labelY}">${escapeXml(label)}</text>`);
+  }
+  return fragmentWidth;
+}
+
 function renderLinearRestrictionMap(records, options = {}) {
   const width = 920;
   const siteLabelLaneCount = 3;
@@ -263,17 +272,47 @@ function renderLinearRestrictionMap(records, options = {}) {
     parts.push(`<line class="tick" x1="${margin.left}" y1="${y - 8}" x2="${margin.left}" y2="${y + 8}"/>`);
     parts.push(`<line class="tick" x1="${margin.left + plotWidth}" y1="${y - 8}" x2="${margin.left + plotWidth}" y2="${y + 8}"/>`);
 
+    let hasCircularWrapFragment = false;
     for (const fragment of record.fragments ?? []) {
-      if (fragment.length <= 0 || fragment.topology === "circular") {
+      if (fragment.length <= 0) {
         continue;
       }
-      const x1 = scaleX(fragment.start - 1);
-      const x2 = scaleX(fragment.end);
-      const fragmentWidth = Math.max(1, x2 - x1);
-      parts.push(`<rect class="fragment" x="${x1.toFixed(2)}" y="${y - 6}" width="${fragmentWidth.toFixed(2)}" height="12"/>`);
-      if (fragmentWidth >= 48) {
-        parts.push(`<text class="fragment-label" x="${((x1 + x2) / 2).toFixed(2)}" y="${y + 26}">${fragment.length} bp</text>`);
+      if (fragment.topology === "circular") {
+        if (fragment.start > fragment.end) {
+          hasCircularWrapFragment = true;
+          const rightWidth = pushLinearFragmentSegment(parts, {
+            x1: scaleX(fragment.start - 1),
+            x2: scaleX(length),
+            y,
+            label: `${fragment.length} bp total`,
+            labelY: y + 26
+          });
+          const leftWidth = pushLinearFragmentSegment(parts, {
+            x1: scaleX(0),
+            x2: scaleX(fragment.end),
+            y,
+            label: rightWidth >= 48 ? "" : `${fragment.length} bp total`,
+            labelY: y + 26
+          });
+          if (rightWidth < 48 && leftWidth < 48 && rightWidth + leftWidth >= 48) {
+            parts.push(`<text class="fragment-label" x="${margin.left + 44}" y="${y + 26}">${fragment.length} bp total</text>`);
+          }
+        } else {
+          pushLinearFragmentSegment(parts, {
+            x1: scaleX(fragment.start - 1),
+            x2: scaleX(fragment.end),
+            y,
+            label: `${fragment.length} bp`
+          });
+        }
+        continue;
       }
+      pushLinearFragmentSegment(parts, {
+        x1: scaleX(fragment.start - 1),
+        x2: scaleX(fragment.end),
+        y,
+        label: `${fragment.length} bp`
+      });
     }
 
     const lanes = [];
@@ -292,6 +331,9 @@ function renderLinearRestrictionMap(records, options = {}) {
     }
     if (suppressedLabelCount > 0) {
       parts.push(`<text class="label-suppressed" x="${margin.left + plotWidth - 16}" y="${y + 38}">${suppressedLabelCount} dense label${suppressedLabelCount === 1 ? "" : "s"} in table</text>`);
+    }
+    if (hasCircularWrapFragment) {
+      parts.push(`<text class="note" x="${labelLeft}" y="${y + 52}">Circular wrap-around fragment is split at the displayed sequence ends; the labeled total is one digest fragment.</text>`);
     }
   });
 

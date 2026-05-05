@@ -4,6 +4,7 @@ import { makeTableStream, makeTextStream, makeToolResult } from "../../core/work
 import { baseCompositionPlotTableColumns } from "./metadata.js";
 
 const TSV_COLUMNS = baseCompositionPlotTableColumns.map((column) => column.id);
+const SVG_PLOT_WINDOW_THRESHOLD = 5000;
 const METRIC_LABELS = {
   gc_percent: "GC percent",
   at_percent: "AT percent",
@@ -282,6 +283,22 @@ function makeSvgPlot(records, metric) {
   return parts.join("\n");
 }
 
+function makePlaceholderSvg(title, lines) {
+  const safeLines = lines.map((line) => escapeXml(line));
+  const height = 120 + safeLines.length * 20;
+  return [
+    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 ${height}" role="img" aria-label="${escapeXml(title)}">`,
+    "<style>",
+    ".title{font:700 18px system-ui,sans-serif;fill:#263238}",
+    ".note{font:12px system-ui,sans-serif;fill:#5c6b75}",
+    "</style>",
+    `<rect x="0" y="0" width="760" height="${height}" fill="white"/>`,
+    `<text class="title" x="24" y="34">${escapeXml(title)}</text>`,
+    ...safeLines.map((line, index) => `<text class="note" x="24" y="${66 + index * 20}">${line}</text>`),
+    "</svg>"
+  ].join("");
+}
+
 function normalizeBaseCompositionOptions(options = {}) {
   const metric = Object.hasOwn(METRIC_LABELS, options.metric) ? options.metric : "gc_percent";
   return {
@@ -306,7 +323,19 @@ function makeBaseCompositionResult({
 }) {
   const tableRows = analyzedRecords.flatMap((record) => record.rows);
   const reportOutput = makeReport(analyzedRecords, metric);
-  const svgPlot = makeSvgPlot(analyzedRecords, metric);
+  let svgPlot = "";
+  if (outputFormat === "svg-plot" && tableRows.length <= SVG_PLOT_WINDOW_THRESHOLD) {
+    svgPlot = makeSvgPlot(analyzedRecords, metric);
+  } else if (outputFormat === "svg-plot") {
+    warnings.push(
+      `SVG composition plot was not drawn because this run has ${tableRows.length} windows. Use TSV table output or larger window/step settings for dense analyses.`
+    );
+    svgPlot = makePlaceholderSvg("Base composition plot not drawn", [
+      `${tableRows.length} windows across ${recordsProcessed} records.`,
+      "The graphical plot is suppressed for dense outputs to keep the browser responsive.",
+      "Use the table output or increase the step size for a drawable plot."
+    ]);
+  }
   const output = outputFormat === "report" ? reportOutput : outputFormat === "tsv" ? makeTsv(tableRows) : svgPlot;
 
   return makeToolResult({
@@ -327,7 +356,7 @@ function makeBaseCompositionResult({
     streams: {
       report: makeTextStream(reportOutput, "text/plain"),
       table: makeTableStream(baseCompositionPlotTableColumns, tableRows, "base-composition-plot"),
-      plot: makeTextStream(svgPlot, "image/svg+xml")
+      ...(outputFormat === "svg-plot" ? { plot: makeTextStream(svgPlot, "image/svg+xml") } : {})
     },
     visual: outputFormat === "svg-plot" ? { svg: svgPlot } : undefined
   });

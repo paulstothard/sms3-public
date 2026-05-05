@@ -137,7 +137,7 @@ export const tableViewerCleanerMetadata = {
     },
     {
       type: "group",
-      label: "Copy/download format",
+      label: "Output format",
       options: [
         {
           id: "outputFormat",

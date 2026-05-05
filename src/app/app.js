@@ -10,6 +10,7 @@ import technicalSequenceSummary from "../reference-data/technical-sequences/summ
 import technicalSequenceProvenance from "../reference-data/technical-sequences/provenance.js";
 import vectorContaminationSummary from "../reference-data/vector-contamination/summary.js";
 import vectorContaminationProvenance from "../reference-data/vector-contamination/provenance.js";
+import { restrictionEnzymeRecords } from "../reference-data/restriction-enzymes/records.js";
 import referenceDataManifest from "../reference-data/datasets.js";
 
 const state = {
@@ -35,7 +36,6 @@ const state = {
     tool: { sortColumn: null, sortDirection: "asc", hiddenColumns: new Set(), columnPreset: "all" },
     workflow: { sortColumn: null, sortDirection: "asc", hiddenColumns: new Set(), columnPreset: "all" }
   },
-  outputFormatByTool: new Map(),
   currentToolOutputChoices: []
 };
 
@@ -44,6 +44,7 @@ const sortedTools = [...tools].sort((left, right) =>
 );
 
 const OUTPUT_HIGHLIGHT_LIMIT = 300_000;
+const OUTPUT_HIGHLIGHT_WINDOW = 8_000;
 const TABLE_FULL_RENDER_ROW_LIMIT = 1000;
 const TABLE_FULL_RENDER_CELL_LIMIT = 20000;
 const toolWorkerClient = new ToolWorkerClient();
@@ -66,6 +67,9 @@ const elements = {
   feedbackLink: document.querySelector("#feedbackLink"),
   feedbackTemplates: document.querySelector("#feedbackTemplates"),
   workflowPreset: document.querySelector("#workflowPreset"),
+  workflowInputTitle: document.querySelector("#workflowInputTitle"),
+  workflowInputActions: document.querySelector("#workflowInputActions"),
+  workflowInputNote: document.querySelector("#workflowInputNote"),
   workflowLoadExample: document.querySelector("#workflowLoadExample"),
   workflowClearInput: document.querySelector("#workflowClearInput"),
   workflowInput: document.querySelector("#workflowInput"),
@@ -111,6 +115,7 @@ const elements = {
   workflowOutputViewNote: document.querySelector("#workflowOutputViewNote"),
   workflowOutputActions: document.querySelector("#workflowOutputActions"),
   workflowTableOutput: document.querySelector("#workflowTableOutput"),
+  workflowVisualOutput: document.querySelector("#workflowVisualOutput"),
   workflowDownloadOutput: document.querySelector("#workflowDownloadOutput"),
   workflowCopyOutput: document.querySelector("#workflowCopyOutput"),
   toolCategory: document.querySelector("#toolCategory"),
@@ -119,7 +124,10 @@ const elements = {
   toolSummary: document.querySelector("#toolSummary"),
   toolOptions: document.querySelector("#toolOptions"),
   restoreDefaults: document.querySelector("#restoreDefaults"),
+  editorGrid: document.querySelector(".editor-grid"),
+  inputPanel: document.querySelector(".input-panel"),
   sequenceInput: document.querySelector("#sequenceInput"),
+  splitInputPanel: document.querySelector("#splitInputPanel"),
   fileInput: document.querySelector("#fileInput"),
   dropZone: document.querySelector("#dropZone"),
   dropZoneLabel: document.querySelector("#dropZoneLabel"),
@@ -177,6 +185,58 @@ GGGATGAAACCCGGGTAAATGCCCAAATAG`,
           input: { from: "find-orfs", stream: "orfRecords" },
           selectStream: "table",
           options: { outputFormat: "tsv" }
+        }
+      ]
+    }
+  },
+  {
+    id: "genbank-cds-codon-usage",
+    name: "GenBank CDS to codon usage",
+    summary: "Parse annotated flatfile records, pass extracted CDS DNA/RNA records to Codon Usage, and show the codon table.",
+    example: `LOCUS       TEST0001                  39 bp    DNA     circular SYN 01-JAN-2026
+DEFINITION  Synthetic parser example record.
+ACCESSION   TEST0001
+VERSION     TEST0001.1
+SOURCE      synthetic construct
+  ORGANISM  synthetic construct
+FEATURES             Location/Qualifiers
+     source          1..39
+                     /organism="synthetic construct"
+     CDS             1..9
+                     /gene="aaa"
+                     /locus_tag="TEST_0001"
+                     /product="forward peptide"
+                     /protein_id="AAA00001.1"
+                     /translation="MKF"
+     CDS             complement(22..30)
+                     /gene="bbb"
+                     /product="reverse peptide"
+                     /protein_id="AAA00002.1"
+                     /translation="MPF"
+ORIGIN
+        1 atgaaattta acccgggtta caaagggcat aaatttcca
+//`,
+    workflow: {
+      steps: [
+        { id: "input", type: "input", text: "" },
+        {
+          id: "parse-records",
+          type: "tool",
+          toolId: "record-parser-extractor",
+          selectStream: "cdsSequenceRecords",
+          options: { outputFormat: "cds-fasta" }
+        },
+        {
+          id: "codon-usage",
+          type: "tool",
+          toolId: "codon-usage",
+          input: { from: "parse-records", stream: "cdsSequenceRecords" },
+          selectStream: "table",
+          options: {
+            frame: "1",
+            excludeTerminalStop: false,
+            outputFormat: "tsv"
+          }
         }
       ]
     }
@@ -286,8 +346,41 @@ ACGTRYSWKMBDHVN`,
         }
       ]
     }
+  },
+  {
+    id: "random-rna-stats",
+    name: "Random RNA sequence stats",
+    summary: "Generate random RNA sequence records, pass them to Sequence Stats, and show the stats table.",
+    example: "",
+    workflow: {
+      steps: [
+        {
+          id: "random-rna",
+          type: "tool",
+          toolId: "random-dna-rna",
+          selectStream: "sequenceRecords",
+          options: {
+            nucleotideAlphabet: "rna",
+            sequenceLength: 120,
+            sequenceCount: 3,
+            seed: "",
+            outputFormat: "fasta"
+          }
+        },
+        {
+          id: "stats",
+          type: "tool",
+          toolId: "sequence-stats-dna-rna",
+          input: { from: "random-rna", stream: "sequenceRecords" },
+          selectStream: "table",
+          options: { outputFormat: "tsv" }
+        }
+      ]
+    }
   }
 ];
+
+const mobileNavigationQuery = window.matchMedia("(max-width: 880px)");
 
 const feedbackTemplates = [
   {
@@ -435,11 +528,54 @@ function makeReferenceDataManifestRows() {
 }
 
 function formatToolSummaryContract(contracts, fallback) {
-  const labels = (contracts ?? [])
+  const visibleContracts = (contracts ?? []).filter((contract) =>
+    contract.id !== "primary" || (contracts ?? []).length === 1
+  );
+  const labels = visibleContracts
     .map((contract) => describeWorkflowStreamChoice(contract))
     .filter(Boolean);
   const uniqueLabels = [...new Set(labels)];
   return uniqueLabels.length > 0 ? uniqueLabels.join("; ") : fallback;
+}
+
+function formatToolSummaryTableOutputs(outputs) {
+  const labels = (outputs ?? [])
+    .filter((output) => output.kind === "table" || output.mediaType?.includes("tab-separated-values") || output.mediaType?.includes("csv"))
+    .map((output) => describeWorkflowStreamChoice(output))
+    .filter(Boolean);
+  const uniqueLabels = [...new Set(labels)];
+  return uniqueLabels.length > 0 ? uniqueLabels.join("; ") : "None";
+}
+
+function formatToolSummaryMetadataChecks(metadata) {
+  const checks = [];
+  const outputs = metadata.workflow?.outputs ?? [];
+  const outputIds = outputs.map((output) => output.id);
+  const duplicateOutputIds = [...new Set(outputIds.filter((id, index) => outputIds.indexOf(id) !== index))];
+  if (!metadata.workflow?.inputs?.length && metadata.inputRequired !== false) {
+    checks.push("missing workflow inputs");
+  }
+  if (!outputs.length) {
+    checks.push("missing workflow outputs");
+  }
+  if (duplicateOutputIds.length > 0) {
+    checks.push(`duplicate outputs: ${duplicateOutputIds.join(", ")}`);
+  }
+  const tableOutputs = outputs.filter((output) => output.kind === "table");
+  for (const output of tableOutputs) {
+    if (!output.schema) {
+      checks.push(`${output.id} table has no schema`);
+    }
+    if (output.schema !== "generic-table" && !(output.columns ?? []).length) {
+      checks.push(`${output.id} table has no columns`);
+    }
+  }
+  const outputFormat = flattenOptions(metadata.options ?? []).find((option) => option.id === "outputFormat");
+  const hasDelimitedChoice = (outputFormat?.choices ?? []).some((choice) => choice.value === "tsv" || choice.value === "csv");
+  if (hasDelimitedChoice && tableOutputs.length === 0) {
+    checks.push("TSV/CSV format has no table output");
+  }
+  return checks.length > 0 ? checks.join("; ") : "OK";
 }
 
 function makeToolSummaryRows() {
@@ -451,6 +587,8 @@ function makeToolSummaryRows() {
       formatToolSummaryContract(metadata.workflow?.inputs, metadata.inputType),
       metadata.outputType,
       formatToolSummaryContract(metadata.workflow?.outputs, metadata.outputType),
+      formatToolSummaryTableOutputs(metadata.workflow?.outputs),
+      formatToolSummaryMetadataChecks(metadata),
       metadata.category,
       metadata.tags.join(", "),
       metadata.id,
@@ -460,16 +598,29 @@ function makeToolSummaryRows() {
   });
 }
 
+function makeRestrictionEnzymeRows() {
+  return restrictionEnzymeRecords.map((enzyme) => [
+    enzyme.name,
+    enzyme.recognition,
+    enzyme.cutTop,
+    enzyme.cutBottom,
+    enzyme.overhang,
+    enzyme.source
+  ]);
+}
+
 const referenceTopics = [
   {
     id: "tool-summary",
     label: "Tool summary",
     title: "Tool Summary",
     summary: "Registered SMS3 tools, searchable metadata, accepted inputs, produced outputs, tags, and direct-link IDs.",
-    columns: ["Tool", "Input label", "Accepted inputs", "Output label", "Produced outputs", "Category", "Tags", "Tool ID", "Direct link", "Summary"],
+    columns: ["Tool", "Input label", "Accepted inputs", "Output label", "Produced outputs", "Table outputs", "Metadata check", "Category", "Tags", "Tool ID", "Direct link", "Summary"],
     rows: makeToolSummaryRows(),
     notes: [
       "Input and output labels are the short user-facing tool descriptions. Accepted inputs and produced outputs are generated from the same workflow metadata used by the workflow builder.",
+      "Table outputs identify structured browser-table data that can be copied or downloaded as exact TSV/CSV without displaying raw TSV/CSV text in the main output area.",
+      "Metadata check reports obvious workflow-output problems that should be fixed before adding or promoting tools.",
       "Direct-link IDs are stable enough for tutorials and teaching material.",
       "When adding tools, update metadata deliberately and keep tags within the controlled vocabulary in src/tools/tag-vocabulary.js."
     ],
@@ -610,6 +761,28 @@ const referenceTopics = [
       {
         label: "S. cerevisiae S288C RefSeq nuclear chromosomes",
         url: "https://www.ncbi.nlm.nih.gov/nuccore/?term=NC_001133+OR+NC_001134+OR+NC_001135+OR+NC_001136+OR+NC_001137+OR+NC_001138+OR+NC_001139+OR+NC_001140+OR+NC_001141+OR+NC_001142+OR+NC_001143+OR+NC_001144+OR+NC_001145+OR+NC_001146+OR+NC_001147+OR+NC_001148"
+      }
+    ]
+  },
+  {
+    id: "restriction-enzymes",
+    label: "Restriction enzymes",
+    title: "Restriction Enzymes",
+    summary: "Bundled restriction enzyme recognition sites used by restriction analysis tools.",
+    columns: ["Name", "Recognition", "Cut top", "Cut bottom", "Overhang", "Source"],
+    rows: makeRestrictionEnzymeRows(),
+    notes: [
+      "Use browser find/search on this reference page to locate enzymes by name, recognition sequence, overhang, or source.",
+      "Cut offsets use the same semantics as the Restriction Analysis tool."
+    ],
+    citations: [
+      {
+        label: "REBASE restriction enzyme database",
+        url: "https://rebase.neb.com/"
+      },
+      {
+        label: "NEB restriction enzyme resources",
+        url: "https://www.neb.com/tools-and-resources/selection-charts/alphabetized-list-of-recognition-specificities"
       }
     ]
   },
@@ -860,9 +1033,14 @@ function renderActiveView() {
   elements.workflowLink.classList.toggle("active", state.activeView === "workflow");
 }
 
+function scrollWorkspaceToTop() {
+  window.scrollTo({ top: 0, left: 0, behavior: "auto" });
+}
+
 function selectTool(tool, { updateHash = true } = {}) {
   state.selectedTool = tool;
   state.activeView = "tool";
+  scrollWorkspaceToTop();
   renderActiveView();
   renderSelectedTool();
   renderToolList();
@@ -878,6 +1056,7 @@ function selectTool(tool, { updateHash = true } = {}) {
 function selectReference(referenceId, { updateHash = true } = {}) {
   state.selectedReference = referenceId;
   state.activeView = "reference";
+  scrollWorkspaceToTop();
   renderActiveView();
   renderReferenceList();
   renderToolList();
@@ -890,6 +1069,7 @@ function selectReference(referenceId, { updateHash = true } = {}) {
 
 function selectFeedback({ updateHash = true } = {}) {
   state.activeView = "feedback";
+  scrollWorkspaceToTop();
   renderActiveView();
   renderToolList();
   renderReferenceList();
@@ -906,6 +1086,7 @@ function selectWorkflow(workflowId = state.selectedWorkflow, { updateHash = true
   state.selectedWorkflowStepId = null;
   state.expandedWorkflowStepIds = new Set();
   state.activeView = "workflow";
+  scrollWorkspaceToTop();
   renderActiveView();
   renderToolList();
   renderReferenceList();
@@ -967,6 +1148,10 @@ function renderSelectedTool() {
   elements.toolTitle.textContent = metadata.name;
   elements.toolSummary.textContent = metadata.summary;
   elements.toolTags.textContent = "";
+  const inputRequired = toolRequiresInput(state.selectedTool);
+  elements.inputPanel.hidden = !inputRequired;
+  elements.editorGrid.classList.toggle("no-input", !inputRequired);
+  renderSplitInputPanel(state.selectedTool);
   updateInputFileUi(state.selectedTool);
   renderToolOptions(metadata.options ?? []);
 
@@ -990,8 +1175,18 @@ function renderSelectedTool() {
   updateInputActionButtons();
 }
 
+function toolRequiresInput(tool) {
+  return tool?.metadata?.inputRequired !== false;
+}
+
 function getToolInputFileUi(tool) {
   const metadata = tool?.metadata ?? {};
+  if (metadata.inputRequired === false) {
+    return {
+      dropLabel: "No input file needed",
+      accept: ""
+    };
+  }
   const workflowInputs = metadata.workflow?.inputs ?? [];
   const inputTypeLabel = String(metadata.inputType ?? "").trim();
   const inputType = inputTypeLabel.toLowerCase();
@@ -1069,9 +1264,136 @@ function formatInputTypeForDropLabel(inputTypeLabel) {
 }
 
 function updateInputFileUi(tool) {
+  const isSplitInput = Boolean(tool?.metadata?.splitInput);
+  elements.dropZone.hidden = isSplitInput;
+  elements.fileInput.closest(".file-button").hidden = isSplitInput;
+  elements.sequenceInput.hidden = isSplitInput;
+  if (isSplitInput) {
+    return;
+  }
   const inputUi = getToolInputFileUi(tool);
   elements.dropZoneLabel.textContent = inputUi.dropLabel;
   elements.fileInput.setAttribute("accept", inputUi.accept);
+}
+
+function renderSplitInputPanel(tool) {
+  const splitInput = tool?.metadata?.splitInput;
+  elements.splitInputPanel.textContent = "";
+  elements.splitInputPanel.hidden = !splitInput;
+  if (!splitInput) {
+    return;
+  }
+  const exampleParts = splitInputExampleParts(tool);
+  const makePanel = (index) => {
+    const definedPanel = (splitInput.panels ?? [])[index];
+    const listLabel = `List ${String.fromCharCode(65 + index)}`;
+    return definedPanel ?? {
+      id: `input-${index + 1}`,
+      label: listLabel,
+      dropLabel: `Drop ${listLabel.toLowerCase()} here`,
+      accept: (splitInput.panels ?? [])[0]?.accept ?? ".txt,.csv,.tsv,.tab"
+    };
+  };
+  const appendSection = (index, panel) => {
+    const section = document.createElement("section");
+    section.className = "split-input-section";
+    const heading = document.createElement("div");
+    heading.className = "split-input-heading";
+    const title = document.createElement("h4");
+    title.textContent = panel.label ?? `Input ${index + 1}`;
+    const fileLabel = document.createElement("label");
+    fileLabel.className = "file-button";
+    const fileInput = document.createElement("input");
+    fileInput.type = "file";
+    fileInput.accept = panel.accept ?? ".txt,.csv,.tsv,.tab";
+    const fileText = document.createElement("span");
+    fileText.textContent = "Choose file";
+    fileLabel.append(fileInput, fileText);
+    heading.append(title, fileLabel);
+    const dropZone = document.createElement("div");
+    dropZone.className = "drop-zone split-drop-zone";
+    dropZone.textContent = panel.dropLabel ?? `Drop ${title.textContent} here`;
+    const textarea = document.createElement("textarea");
+    textarea.className = "split-input-textarea";
+    textarea.dataset.splitInputIndex = String(index);
+    textarea.spellcheck = false;
+    textarea.wrap = "off";
+    textarea.value = exampleParts[index] ?? "";
+    const loadFile = async (file) => {
+      if (!file) {
+        return;
+      }
+      if (file.size > 25 * 1024 * 1024) {
+        addMessage(`${file.name}: file is larger than 25 MB.`, "warning");
+        return;
+      }
+      textarea.value = await file.text();
+      clearToolOutput();
+      updateInputActionButtons();
+      addMessage(`Loaded ${file.name} (${file.size.toLocaleString()} bytes).`);
+    };
+    fileInput.addEventListener("change", async () => {
+      await loadFile(fileInput.files?.[0]);
+      fileInput.value = "";
+    });
+    dropZone.addEventListener("dragover", (event) => {
+      event.preventDefault();
+      dropZone.classList.add("drag-over");
+    });
+    dropZone.addEventListener("dragleave", () => dropZone.classList.remove("drag-over"));
+    dropZone.addEventListener("drop", async (event) => {
+      event.preventDefault();
+      dropZone.classList.remove("drag-over");
+      await loadFile(event.dataTransfer.files?.[0]);
+    });
+    textarea.addEventListener("input", updateInputActionButtons);
+    section.append(heading, dropZone, textarea);
+    elements.splitInputPanel.append(section);
+  };
+  for (const [index, panel] of (splitInput.panels ?? []).entries()) {
+    appendSection(index, panel);
+  }
+  if (splitInput.allowAdd) {
+    const actions = document.createElement("div");
+    actions.className = "split-input-actions";
+    const addButton = document.createElement("button");
+    addButton.type = "button";
+    addButton.className = "secondary-button";
+    addButton.textContent = splitInput.addLabel ?? "Add input";
+    addButton.addEventListener("click", () => {
+      const index = elements.splitInputPanel.querySelectorAll(".split-input-textarea").length;
+      appendSection(index, makePanel(index));
+      elements.splitInputPanel.append(actions);
+      clearToolOutput();
+      updateInputActionButtons();
+    });
+    actions.append(addButton);
+    elements.splitInputPanel.append(actions);
+  }
+}
+
+function splitInputExampleParts(tool) {
+  const splitInput = tool?.metadata?.splitInput;
+  if (!splitInput) {
+    return [];
+  }
+  const separator = splitInput.separator ?? "---";
+  const pattern = new RegExp(`\\n${separator.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\n`);
+  return String(tool.example ?? "").split(pattern);
+}
+
+function getSelectedToolInputText() {
+  const splitInput = state.selectedTool?.metadata?.splitInput;
+  if (!toolRequiresInput(state.selectedTool)) {
+    return "";
+  }
+  if (!splitInput) {
+    return elements.sequenceInput.value;
+  }
+  const separator = splitInput.separator ?? "---";
+  return [...elements.splitInputPanel.querySelectorAll(".split-input-textarea")]
+    .map((textarea) => textarea.value)
+    .join(`\n${separator}\n`);
 }
 
 function renderToolOptions(options) {
@@ -1093,9 +1415,6 @@ function renderToolOptions(options) {
 }
 
 function shouldRenderToolOption(option) {
-  if (option.id === "outputFormat") {
-    return false;
-  }
   if (option.type === "group") {
     return (option.options ?? []).some(shouldRenderToolOption);
   }
@@ -1121,6 +1440,7 @@ function appendToolOptionControl(parent, option, defaultValues) {
   if (option.type === "select" || (option.type === "radio" && (option.choices ?? []).length > 3)) {
     const label = document.createElement("label");
     label.className = "select-row";
+    label.dataset.optionId = option.id;
     label.append(createOptionLabelContent(option));
     const select = document.createElement("select");
     select.id = option.id;
@@ -1134,6 +1454,7 @@ function appendToolOptionControl(parent, option, defaultValues) {
 
   if (option.type === "radio") {
     const fieldset = document.createElement("fieldset");
+    fieldset.dataset.optionId = option.id;
     const legend = document.createElement("legend");
     legend.append(createOptionLabelContent(option));
     fieldset.append(legend);
@@ -1156,6 +1477,7 @@ function appendToolOptionControl(parent, option, defaultValues) {
   if (option.type === "checkbox") {
     const label = document.createElement("label");
     label.className = "checkbox-row";
+    label.dataset.optionId = option.id;
     const input = document.createElement("input");
     input.id = option.id;
     input.type = "checkbox";
@@ -1168,6 +1490,7 @@ function appendToolOptionControl(parent, option, defaultValues) {
   if (option.type === "number") {
     const label = document.createElement("label");
     label.className = "number-row";
+    label.dataset.optionId = option.id;
     label.append(createOptionLabelContent(option));
     const input = document.createElement("input");
     input.id = option.id;
@@ -1183,6 +1506,7 @@ function appendToolOptionControl(parent, option, defaultValues) {
   if (option.type === "text") {
     const label = document.createElement("label");
     label.className = "text-row";
+    label.dataset.optionId = option.id;
     label.append(createOptionLabelContent(option));
     const input = document.createElement("input");
     input.id = option.id;
@@ -1299,7 +1623,7 @@ function getFilteredChoices(option, optionValues) {
   if (!parentValue || parentValue === "all") {
     return choices;
   }
-  return choices.filter((choice) => choice.value === option.defaultValue || choice.dependsOnValue === parentValue);
+  return choices.filter((choice) => choice.always || choice.value === option.defaultValue || choice.dependsOnValue === parentValue);
 }
 
 function populateDependentSelect(select, option, optionValues, preferredValue) {
@@ -1331,11 +1655,12 @@ function normalizeDependentOptionValues(options, optionValues) {
 function wireDependentToolOptions(options) {
   const flatOptions = flattenOptions(options);
   const dependentOptions = flatOptions.filter((option) => option.dependsOn);
-  if (dependentOptions.length === 0) {
+  const visibilityOptions = flatOptions.filter((option) => option.visibleWhen);
+  if (dependentOptions.length === 0 && visibilityOptions.length === 0) {
     return;
   }
 
-  function refreshDependents() {
+  function refreshDynamicOptions() {
     const optionValues = getCurrentOptionValues(elements.toolOptions, flatOptions);
     for (const option of dependentOptions) {
       const select = elements.toolOptions.querySelector(`select[name="${option.id}"]`);
@@ -1345,20 +1670,30 @@ function wireDependentToolOptions(options) {
       populateDependentSelect(select, option, optionValues, select.value);
       optionValues[option.id] = select.value;
     }
+    for (const option of visibilityOptions) {
+      const row = elements.toolOptions.querySelector(`[data-option-id="${option.id}"]`);
+      if (!row) {
+        continue;
+      }
+      const visibleWhen = option.visibleWhen;
+      row.hidden = optionValues[visibleWhen.option] !== visibleWhen.value;
+    }
   }
 
   for (const option of flatOptions) {
-    if (dependentOptions.some((dependent) => dependent.dependsOn === option.id)) {
+    if (
+      dependentOptions.some((dependent) => dependent.dependsOn === option.id) ||
+      visibilityOptions.some((visibleOption) => visibleOption.visibleWhen.option === option.id)
+    ) {
       elements.toolOptions
         .querySelectorAll(`select[name="${option.id}"], input[name="${option.id}"]`)
-        .forEach((control) => control.addEventListener("change", refreshDependents));
+        .forEach((control) => control.addEventListener("change", refreshDynamicOptions));
     }
   }
-  refreshDependents();
+  refreshDynamicOptions();
 }
 
 function restoreCurrentToolDefaults() {
-  state.outputFormatByTool.delete(state.selectedTool.metadata.id);
   renderToolOptions(state.selectedTool.metadata.options ?? []);
   clearToolOutput();
 }
@@ -1777,11 +2112,6 @@ function getOptions() {
     }
   }
 
-  const outputFormatOption = getOutputFormatOption(state.selectedTool);
-  if (outputFormatOption) {
-    values.outputFormat = getSelectedToolOutputFormat(state.selectedTool);
-  }
-
   return values;
 }
 
@@ -1823,25 +2153,26 @@ function describeStructuredOutput(id, stream) {
   if (!stream) {
     return id;
   }
+  const label = describeWorkflowStreamChoice({ id, ...stream });
   if (stream.kind === "table") {
-    return `${id}: table with ${pluralize(stream.rows?.length ?? 0, "row")} and ${pluralize(stream.columns?.length ?? 0, "column")}`;
+    return `${label}: ${pluralize(stream.rows?.length ?? 0, "row")}, ${pluralize(stream.columns?.length ?? 0, "column")}`;
   }
   if (stream.kind === "sequence-records") {
-    return `${id}: ${stream.alphabet === "protein" ? "protein" : "DNA/RNA"} sequences (${pluralize(stream.records?.length ?? 0, "record")})`;
+    return `${label}: ${pluralize(stream.records?.length ?? 0, "record")}`;
   }
   if (stream.kind === "warnings") {
-    return `${id}: ${pluralize(stream.warnings?.length ?? 0, "warning")}`;
+    return `${label}: ${pluralize(stream.warnings?.length ?? 0, "warning")}`;
   }
   if (stream.kind === "text") {
-    return `${id}: ${describeStream(stream)}`;
+    return `${label}: ${describeStream(stream)}`;
   }
   if (stream.kind === "collection") {
-    return `${id}: set with ${pluralize(stream.items?.length ?? 0, "item")}`;
+    return `${label}: set with ${pluralize(stream.items?.length ?? 0, "item")}`;
   }
   if (stream.records) {
-    return `${id}: ${describeStream(stream)} (${pluralize(stream.records.length, "record")})`;
+    return `${label}: ${describeStream(stream)} (${pluralize(stream.records.length, "record")})`;
   }
-  return `${id}: ${describeStream(stream)}`;
+  return `${label}: ${describeStream(stream)}`;
 }
 
 function appendOutputDetails(parent, detailsRows) {
@@ -1879,8 +2210,8 @@ function getToolOutputDetails(result) {
     result.charactersRemoved > 0
       ? ["Cleaned", `${pluralize(result.charactersRemoved, "character")} removed`]
       : null,
-    ["Copy/download", `${result.download?.filename ?? "sms3-output.txt"} (${result.download?.mimeType ?? "text/plain"})`],
-    structuredOutputs ? ["Structured data", structuredOutputs] : null,
+    ["Default export", `${result.download?.filename ?? "sms3-output.txt"} (${result.download?.mimeType ?? "text/plain"})`],
+    structuredOutputs ? ["Available results", structuredOutputs] : null,
     result.visual?.svg ? ["Visual output", "SVG preview"] : null
   ];
 }
@@ -1889,9 +2220,9 @@ function getWorkflowOutputDetails(result, formatted) {
   return [
     ["Workflow run", pluralize(result.steps?.length ?? 0, "step")],
     ["Current output", formatted.summary],
-    ["Copy/download", `${formatted.filename ?? "sms3-workflow-output.txt"} (${formatted.mimeType ?? "text/plain"})`],
+    ["Default export", `${formatted.filename ?? "sms3-workflow-output.txt"} (${formatted.mimeType ?? "text/plain"})`],
     formatted.tableStream
-      ? ["Structured data", describeStructuredOutput("table", formatted.tableStream)]
+      ? ["Available results", describeStructuredOutput("table", formatted.tableStream)]
       : null
   ];
 }
@@ -1981,6 +2312,42 @@ function appendOutputText(parent, text) {
   }
 }
 
+function renderOutputHighlightWindow(scope, text, query) {
+  const search = state.outputSearch[scope];
+  const parts = getOutputSearchParts(scope);
+  const currentMatch = search.matches[search.currentIndex];
+  if (!currentMatch) {
+    parts.preview.hidden = true;
+    parts.textarea.style.visibility = "";
+    return;
+  }
+
+  const halfWindow = Math.floor(OUTPUT_HIGHLIGHT_WINDOW / 2);
+  const windowStart = Math.max(0, currentMatch.start - halfWindow);
+  const windowEnd = Math.min(text.length, currentMatch.end + halfWindow);
+  const windowMatches = search.matches.filter((match) => match.end > windowStart && match.start < windowEnd);
+  parts.preview.textContent = "";
+  if (windowStart > 0) {
+    appendOutputText(parts.preview, `... ${windowStart.toLocaleString()} characters before current match ...\n`);
+  }
+
+  let cursor = windowStart;
+  for (const match of windowMatches) {
+    appendOutputText(parts.preview, text.slice(cursor, Math.max(cursor, match.start)));
+    const mark = document.createElement("mark");
+    mark.className = match === currentMatch ? "current-output-match" : "";
+    mark.textContent = text.slice(Math.max(match.start, windowStart), Math.min(match.end, windowEnd));
+    parts.preview.append(mark);
+    cursor = Math.min(match.end, windowEnd);
+  }
+  appendOutputText(parts.preview, text.slice(cursor, windowEnd));
+  if (windowEnd < text.length) {
+    appendOutputText(parts.preview, `\n... ${(text.length - windowEnd).toLocaleString()} characters after current match ...`);
+  }
+  parts.preview.hidden = false;
+  parts.textarea.style.visibility = "hidden";
+}
+
 function renderOutputHighlight(scope) {
   const search = state.outputSearch[scope];
   const parts = getOutputSearchParts(scope);
@@ -1988,9 +2355,13 @@ function renderOutputHighlight(scope) {
   const query = parts.input.value;
   parts.preview.textContent = "";
 
-  if (!query || search.matches.length === 0 || text.length > OUTPUT_HIGHLIGHT_LIMIT) {
+  if (!query || search.matches.length === 0) {
     parts.preview.hidden = true;
     parts.textarea.style.visibility = "";
+    return;
+  }
+  if (text.length > OUTPUT_HIGHLIGHT_LIMIT) {
+    renderOutputHighlightWindow(scope, text, query);
     return;
   }
 
@@ -2124,7 +2495,13 @@ function renderOutputSearch(scope) {
 
 function queueOutputSearch(scope) {
   window.clearTimeout(state.outputSearch[scope].debounceTimer);
-  state.outputSearch[scope].debounceTimer = window.setTimeout(() => renderOutputSearch(scope), 180);
+  state.outputSearch[scope].debounceTimer = window.setTimeout(() => {
+    renderOutputSearch(scope);
+    getOutputSearchParts(scope).input.closest(".output-search-row")?.scrollIntoView({
+      block: "nearest",
+      inline: "nearest"
+    });
+  }, 180);
 }
 
 function moveOutputSearch(scope, direction) {
@@ -2132,19 +2509,49 @@ function moveOutputSearch(scope, direction) {
   if (search.matches.length === 0) {
     return;
   }
+  const scrollX = window.scrollX;
+  const scrollY = window.scrollY;
   search.currentIndex = (search.currentIndex + direction + search.matches.length) % search.matches.length;
   const parts = getOutputSearchParts(scope);
   parts.count.textContent = `${search.currentIndex + 1} of ${search.matches.length}`;
   if (isTableViewActive(scope)) {
     selectTableOutputMatch(scope);
+    window.scrollTo(scrollX, scrollY);
+    requestAnimationFrame(() => window.scrollTo(scrollX, scrollY));
     return;
   }
   renderOutputHighlight(scope);
   selectOutputMatch(scope);
+  window.scrollTo(scrollX, scrollY);
+  requestAnimationFrame(() => window.scrollTo(scrollX, scrollY));
+}
+
+function rememberPageScrollForOutputButton(event) {
+  const button = event.currentTarget;
+  button.dataset.pageScrollX = String(window.scrollX);
+  button.dataset.pageScrollY = String(window.scrollY);
+  event.preventDefault();
+}
+
+function restorePageScrollForOutputButton(event) {
+  const button = event.currentTarget;
+  const scrollX = Number.parseFloat(button.dataset.pageScrollX ?? String(window.scrollX));
+  const scrollY = Number.parseFloat(button.dataset.pageScrollY ?? String(window.scrollY));
+  window.scrollTo(scrollX, scrollY);
+  requestAnimationFrame(() => window.scrollTo(scrollX, scrollY));
+  window.setTimeout(() => window.scrollTo(scrollX, scrollY), 0);
+}
+
+function keepOutputSearchButtonFromScrollingPage(button) {
+  button.addEventListener("mousedown", rememberPageScrollForOutputButton);
+  button.addEventListener("click", restorePageScrollForOutputButton);
 }
 
 function clearToolInputOutput() {
   elements.sequenceInput.value = "";
+  elements.splitInputPanel.querySelectorAll(".split-input-textarea").forEach((textarea) => {
+    textarea.value = "";
+  });
   elements.toolOutput.value = "";
   elements.toolOutput.dataset.rawOutput = "";
   elements.toolOutput.dataset.tableTsv = "";
@@ -2188,7 +2595,11 @@ function clearToolOutput() {
 }
 
 function loadSelectedToolExample() {
-  elements.sequenceInput.value = state.selectedTool.example ?? "";
+  if (state.selectedTool.metadata.splitInput) {
+    renderSplitInputPanel(state.selectedTool);
+  } else {
+    elements.sequenceInput.value = toolRequiresInput(state.selectedTool) ? state.selectedTool.example ?? "" : "";
+  }
   clearToolOutput();
   updateInputActionButtons();
 }
@@ -2207,23 +2618,16 @@ function getSelectedToolOutputFormat(tool = state.selectedTool) {
   if (!option) {
     return null;
   }
-  return state.outputFormatByTool.get(tool.metadata.id) ?? option.defaultValue;
-}
-
-function setSelectedToolOutputFormat(tool, value) {
-  const option = getOutputFormatOption(tool);
-  if (!option) {
-    return;
-  }
-  const validValues = new Set((option.choices ?? []).map((choice) => choice.value));
-  state.outputFormatByTool.set(tool.metadata.id, validValues.has(value) ? value : option.defaultValue);
+  const selected = elements.toolOptions.querySelector(`select[name="${option.id}"]`)?.value
+    ?? elements.toolOptions.querySelector(`input[name="${option.id}"]:checked`)?.value;
+  return selected ?? option.defaultValue;
 }
 
 function getCurrentToolOutputFormatLabel(result) {
   const options = flattenOptions(state.selectedTool.metadata.options ?? []);
   const values = getOptions();
   const formatOption = options.find((option) => option.id === "outputFormat")
-    ?? options.find((option) => option.label === "Copy/download format");
+    ?? options.find((option) => option.label === "Output format");
 
   if (formatOption) {
     const choice = (formatOption.choices ?? []).find((item) => item.value === values[formatOption.id]);
@@ -2250,6 +2654,76 @@ function getCurrentToolOutputFormatLabel(result) {
     return "JSON";
   }
   return "Text";
+}
+
+function getBaseMimeType(mimeType = "") {
+  return String(mimeType).split(";")[0].trim().toLowerCase();
+}
+
+function isDelimitedDownload(format = "", download = {}) {
+  const selectedFormat = String(format ?? "").toLowerCase();
+  const filename = String(download.filename ?? "").toLowerCase();
+  const mimeType = getBaseMimeType(download.mimeType);
+  return (
+    selectedFormat === "tsv" ||
+    selectedFormat === "csv" ||
+    selectedFormat.endsWith("-tsv") ||
+    selectedFormat.endsWith("-csv") ||
+    filename.endsWith(".tsv") ||
+    filename.endsWith(".csv") ||
+    mimeType === "text/tab-separated-values" ||
+    mimeType === "text/csv"
+  );
+}
+
+function normalizeStreamSelector(value = "") {
+  return String(value).toLowerCase().replace(/[^a-z0-9]+/g, "");
+}
+
+function scoreTableStreamForFormat(streamId, selectedFormat) {
+  const id = normalizeStreamSelector(streamId);
+  const format = normalizeStreamSelector(selectedFormat);
+  if (!format) {
+    return 0;
+  }
+  let score = 0;
+  if (id === format) {
+    score += 20;
+  }
+  if (format.includes(id) || id.includes(format)) {
+    score += 12;
+  }
+  if (format.includes("summary") && id.includes("summary")) {
+    score += 10;
+  }
+  if ((format.includes("missing") || format.includes("rows")) && id.includes("missing")) {
+    score += 10;
+  }
+  if ((format.includes("issue") || format.includes("validat")) && id.includes("issue")) {
+    score += 10;
+  }
+  if ((format.includes("duplicate") || format.includes("dup")) && id.includes("duplicate")) {
+    score += 10;
+  }
+  return score;
+}
+
+function getDelimitedTableStream(result, selectedFormat) {
+  if (result.streams?.table?.kind === "table") {
+    return result.streams.table;
+  }
+  const tableStreams = Object.entries(result.streams ?? {}).filter(
+    ([, stream]) => stream?.kind === "table" && Array.isArray(stream.rows)
+  );
+  if (tableStreams.length === 0) {
+    return null;
+  }
+  if (tableStreams.length === 1) {
+    return tableStreams[0][1];
+  }
+  return tableStreams
+    .map(([id, stream], index) => ({ id, stream, index, score: scoreTableStreamForFormat(id, selectedFormat) }))
+    .sort((left, right) => right.score - left.score || left.index - right.index)[0].stream;
 }
 
 function alignTsv(tsv) {
@@ -2536,7 +3010,7 @@ function renderTableControls(scope, stream, columns, sortedRows, displayedRows, 
 
   const copyVisible = document.createElement("button");
   copyVisible.type = "button";
-  copyVisible.textContent = isPreview ? "Copy displayed" : "Copy";
+  copyVisible.textContent = isPreview ? "Copy displayed" : "Copy table";
   copyVisible.title = "Copy the displayed table rows and columns";
   copyVisible.disabled = displayedRows.length === 0;
   copyVisible.addEventListener("click", async () => {
@@ -2546,7 +3020,7 @@ function renderTableControls(scope, stream, columns, sortedRows, displayedRows, 
 
   const downloadVisible = document.createElement("button");
   downloadVisible.type = "button";
-  downloadVisible.textContent = isPreview ? "Download displayed" : "Download";
+  downloadVisible.textContent = isPreview ? "Download displayed" : "Download table";
   downloadVisible.title = "Download the displayed table rows and columns";
   downloadVisible.disabled = displayedRows.length === 0;
   downloadVisible.addEventListener("click", () => {
@@ -2787,36 +3261,38 @@ function renderWorkflowTableOutput(tableStream, preferTable = false) {
   renderTableOutputForScope("workflow", tableStream, preferTable);
 }
 
-function renderVisualOutput(svg) {
+function getVisualOutputElement(scope) {
+  return scope === "workflow" ? elements.workflowVisualOutput : elements.visualOutput;
+}
+
+function renderVisualOutput(scope, svg) {
+  const visualOutput = getVisualOutputElement(scope);
   if (!svg) {
-    elements.visualOutput.hidden = true;
-    elements.visualOutput.textContent = "";
+    visualOutput.hidden = true;
+    visualOutput.textContent = "";
     return;
   }
-  elements.visualOutput.hidden = false;
-  elements.visualOutput.textContent = "";
+  visualOutput.hidden = false;
+  visualOutput.textContent = "";
   const heading = document.createElement("h4");
   heading.className = "visual-output-heading";
   heading.textContent = "Preview";
-  elements.visualOutput.append(heading);
-  elements.visualOutput.insertAdjacentHTML("beforeend", svg);
+  visualOutput.append(heading);
+  visualOutput.insertAdjacentHTML("beforeend", svg);
 }
 
 function applyToolOutputChoice(choice) {
   elements.toolOutput.dataset.rawOutput = choice.text;
-  const skipDisplayText = choice.tableStream && (choice.tableStream.rows?.length ?? 0) > TABLE_FULL_RENDER_ROW_LIMIT;
-  elements.toolOutput.value = skipDisplayText
+  elements.toolOutput.value = choice.tableStream
     ? ""
-    : choice.download.mimeType === "text/tab-separated-values"
+    : getBaseMimeType(choice.download.mimeType) === "text/tab-separated-values"
       ? alignTsv(choice.text)
       : choice.text;
   elements.toolOutput.dataset.filename = choice.download.filename ?? "sms3-output.txt";
   elements.toolOutput.dataset.mimeType = choice.download.mimeType ?? "text/plain";
-  elements.outputFormatSelect.value = choice.format;
-  setSelectedToolOutputFormat(state.selectedTool, choice.format);
   setOutputFormatLabel("tool", choice.label);
   renderTableOutputForScope("tool", choice.tableStream, Boolean(choice.tableStream));
-  renderVisualOutput(choice.svg);
+  renderVisualOutput("tool", choice.svg);
   elements.toolOutput.dataset.visualOutput = choice.svg ? "true" : "false";
   elements.toolOutput.hidden = Boolean(choice.tableStream || choice.svg);
   updateOutputActions("tool", {
@@ -2827,107 +3303,24 @@ function applyToolOutputChoice(choice) {
   renderOutputSearch("tool");
 }
 
-function renderToolOutputFormatSelect(choices, selectedFormat) {
-  state.currentToolOutputChoices = choices;
-  elements.outputFormatSelect.textContent = "";
-  for (const choice of choices) {
-    const option = document.createElement("option");
-    option.value = choice.format;
-    option.textContent = choice.label;
-    elements.outputFormatSelect.append(option);
-  }
-  const selected = choices.find((choice) => choice.format === selectedFormat) ?? choices[0];
-  elements.outputViewTabs.hidden = false;
-  elements.outputFormatSelect.closest("label").hidden = choices.length <= 1;
-  if (selected) {
-    applyToolOutputChoice(selected);
-  }
-}
-
-function makeDownloadInfoForFormat(format, result) {
-  const baseName = state.selectedTool.metadata.id;
-  if (format === getSelectedToolOutputFormat(state.selectedTool)) {
-    return result.download ?? { filename: `${baseName}.txt`, mimeType: "text/plain;charset=utf-8" };
-  }
-  if (format === "tsv") {
-    return { filename: `${baseName}.tsv`, mimeType: "text/tab-separated-values" };
-  }
-  if (format === "csv") {
-    return { filename: `${baseName}.csv`, mimeType: "text/csv" };
-  }
-  if (format === "svg-plot" || format === "svg-overview") {
-    return { filename: `${baseName}.svg`, mimeType: "image/svg+xml;charset=utf-8" };
-  }
-  if (format === "fasta" || format === "nucleotide-fasta" || format === "protein-fasta") {
-    return { filename: `${baseName}.fasta`, mimeType: "text/x-fasta;charset=utf-8" };
-  }
-  return { filename: `${baseName}.txt`, mimeType: "text/plain;charset=utf-8" };
-}
-
-function getTextForOutputFormat(format, result) {
-  if (format === getSelectedToolOutputFormat(state.selectedTool)) {
-    return result.output;
-  }
-  if (format === "report") {
-    return result.streams?.report?.text;
-  }
-  if (format === "tsv") {
-    return result.streams?.tsv?.text ?? (result.streams?.table ? tableStreamToTsv(result.streams.table) : undefined);
-  }
-  if (format === "csv") {
-    return result.streams?.table ? tableStreamToCsv(result.streams.table) : undefined;
-  }
-  if (format === "svg-plot") {
-    return result.streams?.plot?.text;
-  }
-  if (format === "svg-overview") {
-    return result.streams?.overview?.text;
-  }
-  if (format === "fasta") {
-    return result.streams?.fasta?.text;
-  }
-  if (format === "nucleotide-fasta") {
-    return result.streams?.nucleotideFasta?.text;
-  }
-  if (format === "protein-fasta") {
-    return result.streams?.proteinFasta?.text;
-  }
-  return undefined;
-}
-
-function makeOutputChoice(format, label, result) {
-  const text = getTextForOutputFormat(format, result);
-  if (typeof text !== "string") {
-    return null;
-  }
-  const download = makeDownloadInfoForFormat(format, result);
-  return {
-    format,
-    label,
-    text,
+function renderGeneratedToolOutputChoice(result) {
+  const selectedFormat = getSelectedToolOutputFormat(state.selectedTool) ?? "primary";
+  const download = result.download ?? { filename: "sms3-output.txt", mimeType: "text/plain" };
+  const isDelimitedOutput = isDelimitedDownload(selectedFormat, download);
+  const svg = result.visual?.svg ?? (download.mimeType?.includes("svg") ? result.output : null);
+  const choice = {
+    format: selectedFormat,
+    label: getCurrentToolOutputFormatLabel(result),
+    text: result.output,
     download,
-    tableStream: format === "tsv" || format === "csv" ? result.streams?.table : null,
-    svg: download.mimeType.includes("svg") ? text : null
+    tableStream: isDelimitedOutput ? getDelimitedTableStream(result, selectedFormat) : null,
+    svg
   };
-}
-
-function getToolOutputChoices(result) {
-  const outputFormatOption = getOutputFormatOption(state.selectedTool);
-  if (!outputFormatOption) {
-    return [
-      {
-        format: "primary",
-        label: getCurrentToolOutputFormatLabel(result),
-        text: result.output,
-        download: result.download ?? { filename: "sms3-output.txt", mimeType: "text/plain" },
-        tableStream: null,
-        svg: result.download?.mimeType?.includes("svg") ? result.output : null
-      }
-    ];
-  }
-  return (outputFormatOption.choices ?? [])
-    .map((choice) => makeOutputChoice(choice.value, choice.label, result))
-    .filter(Boolean);
+  state.currentToolOutputChoices = [choice];
+  elements.outputFormatSelect.textContent = "";
+  elements.outputFormatSelect.closest("label").hidden = true;
+  elements.outputViewTabs.hidden = false;
+  applyToolOutputChoice(choice);
 }
 
 function sequenceRecordsToFasta(stream) {
@@ -2947,9 +3340,8 @@ function formatWorkflowValue(value) {
 
   if (value.kind === "table") {
     const rawText = tableStreamToTsv(value);
-    const skipDisplayText = (value.rows?.length ?? 0) > TABLE_FULL_RENDER_ROW_LIMIT;
     return {
-      text: skipDisplayText ? "" : alignTsv(rawText),
+      text: "",
       rawText,
       summary: `Workflow output: table rows (${pluralize(value.rows?.length ?? 0, "row")})`,
       outputLabel: "TSV table",
@@ -2977,10 +3369,11 @@ function formatWorkflowValue(value) {
     return {
       text: value.text ?? "",
       rawText: value.text ?? "",
-      summary: "Workflow output: readable text",
+      summary: value.mediaType?.includes("svg") ? "Workflow output: graphic" : "Workflow output: text",
       outputLabel: value.mediaType?.includes("svg") ? "SVG" : "Text",
       isTsv: false,
-      filename: "sms3-workflow-output.txt",
+      svg: value.mediaType?.includes("svg") ? value.text ?? "" : null,
+      filename: value.mediaType?.includes("svg") ? "sms3-workflow-output.svg" : "sms3-workflow-output.txt",
       mimeType: value.mediaType ?? "text/plain;charset=utf-8"
     };
   }
@@ -3042,6 +3435,10 @@ function getSelectedWorkflowStep(workflow) {
     state.selectedWorkflowStepId = step.id;
   }
   return step;
+}
+
+function workflowUsesInput(workflow) {
+  return (workflow?.steps ?? []).some((step) => step.type === "input");
 }
 
 function pruneExpandedWorkflowSteps(workflow) {
@@ -3217,6 +3614,24 @@ function getWorkflowInsertionIndex(workflow) {
   return (workflow.steps ?? []).length;
 }
 
+function isWorkflowSourceStep(step) {
+  if (!step) {
+    return false;
+  }
+  if (step.type === "input") {
+    return true;
+  }
+  if (step.type !== "tool" || step.input) {
+    return false;
+  }
+  return getToolById(step.toolId)?.metadata.inputRequired === false;
+}
+
+function isOnlyWorkflowSourceStep(workflow, step) {
+  return isWorkflowSourceStep(step) &&
+    (workflow.steps ?? []).filter((item) => isWorkflowSourceStep(item)).length === 1;
+}
+
 function getWorkflowOutputAtInsertionPoint(workflow) {
   const insertionIndex = getWorkflowInsertionIndex(workflow);
   return insertionIndex > 0 ? getWorkflowOutputAtIndex(workflow, insertionIndex - 1) : undefined;
@@ -3227,6 +3642,12 @@ function describeStream(stream) {
     return "unknown result";
   }
   if (stream.kind === "sequence-records") {
+    if (stream.id === "cdsSequenceRecords") {
+      return "CDS DNA/RNA sequences";
+    }
+    if (stream.id === "wholeSequenceRecords") {
+      return "Whole DNA/RNA sequences";
+    }
     return stream.alphabet === "protein" ? "protein sequences" : "DNA/RNA sequences";
   }
   if (stream.kind === "collection") {
@@ -3260,7 +3681,7 @@ function describeStream(stream) {
     if (stream.mediaType?.includes("tab-separated-values")) {
       return "TSV table";
     }
-    return "readable text";
+    return "Text output";
   }
   return stream.kind;
 }
@@ -3309,6 +3730,12 @@ function describeWorkflowStreamChoice(stream) {
   }
   if (stream.id === "proteinRecords") {
     return "Protein sequences";
+  }
+  if (stream.id === "wholeSequenceRecords") {
+    return "Whole DNA/RNA sequences";
+  }
+  if (stream.id === "cdsSequenceRecords") {
+    return "CDS DNA/RNA sequences";
   }
   if (stream.id === "dnaRecords") {
     return "DNA/RNA sequences";
@@ -3606,6 +4033,9 @@ function describeWorkflowStep(step, workflow) {
     const input = step.input ? ` using ${getWorkflowStepInputDescription(workflow, step)}` : "";
     const flow = workflow ? getWorkflowStepFlow(workflow, (workflow.steps ?? []).findIndex((item) => item.id === step.id)) : {};
     const output = getWorkflowStepOutputDescription(step, flow);
+    if (!flow.input && (tool?.metadata.workflow?.inputs ?? []).length === 0) {
+      return `Start with ${tool?.metadata.name ?? step.toolId}${output ? `; output ${output}` : ""}`;
+    }
     return `Run ${tool?.metadata.name ?? step.toolId}${input}${output ? `; output ${output}` : ""}`;
   }
   if (step.type === "select-stream") {
@@ -3658,6 +4088,14 @@ function renderWorkflowView() {
   elements.workflowSummary.append(summary);
 
   const activeWorkflow = getActiveWorkflowDefinition();
+  const needsInput = workflowUsesInput(activeWorkflow);
+  elements.workflowInputTitle.textContent = needsInput ? "Workflow Input" : "Workflow Run";
+  elements.workflowInputActions.hidden = !needsInput;
+  elements.workflowInput.hidden = !needsInput;
+  elements.workflowInputNote.hidden = needsInput;
+  elements.workflowInputNote.textContent = needsInput
+    ? ""
+    : "This workflow creates its starting data with a tool, so no pasted input is needed.";
   pruneExpandedWorkflowSteps(activeWorkflow);
   const selectedStep = getSelectedWorkflowStep(activeWorkflow);
   const lastOutput = getWorkflowLastOutput(activeWorkflow);
@@ -3706,6 +4144,8 @@ function renderWorkflowView() {
     const stepFlow = document.createElement("small");
     if (step.type === "input") {
       stepFlow.textContent = "Uses Workflow Input.";
+    } else if (!flow.input && step.type === "tool") {
+      stepFlow.textContent = `Creates starting data; produces ${describeWorkflowStreamChoice(flow.output)}`;
     } else {
       const inputDescription = step.input
         ? getWorkflowStepInputDescription(activeWorkflow, step)
@@ -3715,12 +4155,15 @@ function renderWorkflowView() {
 
     const actions = document.createElement("div");
     actions.className = "workflow-step-actions";
-    const deleteButton = document.createElement("button");
-    deleteButton.type = "button";
-    deleteButton.className = "icon-button workflow-delete-step";
-    deleteButton.setAttribute("aria-label", `Remove step ${step.id}`);
-    deleteButton.disabled = step.type === "input";
-    deleteButton.innerHTML = `<svg viewBox="0 0 24 24" focusable="false" aria-hidden="true"><path d="M3 6h18"></path><path d="M8 6V4h8v2"></path><path d="M19 6l-1 14H6L5 6"></path><path d="M10 11v5"></path><path d="M14 11v5"></path></svg>`;
+	    const deleteButton = document.createElement("button");
+	    deleteButton.type = "button";
+	    deleteButton.className = "icon-button workflow-delete-step";
+	    deleteButton.setAttribute("aria-label", `Remove step ${step.id}`);
+	    deleteButton.disabled = isOnlyWorkflowSourceStep(activeWorkflow, step);
+	    if (deleteButton.disabled) {
+	      deleteButton.title = "The only source step cannot be removed.";
+	    }
+	    deleteButton.innerHTML = `<svg viewBox="0 0 24 24" focusable="false" aria-hidden="true"><path d="M3 6h18"></path><path d="M8 6V4h8v2"></path><path d="M19 6l-1 14H6L5 6"></path><path d="M10 11v5"></path><path d="M14 11v5"></path></svg>`;
     deleteButton.addEventListener("click", (event) => {
       event.stopPropagation();
       removeWorkflowStep(step.id);
@@ -3744,7 +4187,7 @@ function renderWorkflowView() {
 function getCompatibleToolsForAppend(workflow) {
   const lastOutput = getWorkflowOutputAtInsertionPoint(workflow);
   if (!lastOutput) {
-    return tools;
+    return tools.filter((tool) => (tool.metadata.workflow?.inputs ?? []).length === 0);
   }
   if (lastOutput.kind === "collection") {
     return [];
@@ -3776,7 +4219,7 @@ function getWorkflowBuilderGuidance(workflow, stepType) {
   const lastOutput = getWorkflowOutputAtInsertionPoint(workflow);
   const current = describeStream(lastOutput);
   if (!lastOutput) {
-    return "Choose the first workflow action.";
+    return "Choose how this workflow creates its starting data.";
   }
   return `Add the next compatible action. Current output: ${current}.`;
 }
@@ -3791,7 +4234,7 @@ const workflowStepTypeLabels = {
   map: "Run tool on each record"
 };
 
-const displayFormatWorkflowOptionIds = new Set(["outputFormat", "formatFasta", "lineWidth"]);
+const displayFormatWorkflowOptionIds = new Set(["formatFasta", "lineWidth"]);
 
 function makeWorkflowCollectionDescription(output, fallback = "result") {
   if (!output) {
@@ -3873,7 +4316,10 @@ function renderWorkflowStepTypeChoices(workflow) {
   for (const stepType of stepTypes) {
     const option = document.createElement("option");
     option.value = stepType;
-    option.textContent = workflowStepTypeLabels[stepType] ?? stepType;
+    option.textContent =
+      !getWorkflowOutputAtInsertionPoint(workflow) && stepType === "tool"
+        ? "Create starting data with a tool"
+        : workflowStepTypeLabels[stepType] ?? stepType;
     elements.workflowAddStepType.append(option);
   }
 
@@ -4249,7 +4695,7 @@ function renderWorkflowStepEditor(container, step) {
   }
 
   const tool = getToolById(step.toolId);
-  const editableOptions = flattenOptions(tool?.metadata.options ?? []).filter((option) =>
+  let editableOptions = flattenOptions(tool?.metadata.options ?? []).filter((option) =>
     (
       option.type === "radio" ||
       option.type === "select" ||
@@ -4265,6 +4711,12 @@ function renderWorkflowStepEditor(container, step) {
   step.options = normalizeDependentOptionValues(editableOptions, {
     ...makeDefaultOptions(tool),
     ...(step.options ?? {})
+  });
+  editableOptions = editableOptions.filter((option) => {
+    if (!option.visibleWhen) {
+      return true;
+    }
+    return step.options[option.visibleWhen.option] === option.visibleWhen.value;
   });
 
   if (step.input) {
@@ -4407,10 +4859,12 @@ function clearWorkflowOutput() {
   elements.workflowOutput.value = "";
   elements.workflowOutput.dataset.rawOutput = "";
   elements.workflowOutput.dataset.tableTsv = "";
+  elements.workflowOutput.dataset.visualOutput = "false";
   elements.workflowOutputHighlight.hidden = true;
   elements.workflowOutputHighlight.textContent = "";
   elements.workflowOutput.hidden = false;
   clearWorkflowTableOutput();
+  renderVisualOutput("workflow", null);
   elements.workflowOutput.dataset.filename = "sms3-workflow-output.txt";
   elements.workflowOutput.dataset.mimeType = "text/plain";
   elements.workflowOutputSummary.textContent = "";
@@ -4761,9 +5215,9 @@ function removeWorkflowStep(stepId = state.selectedWorkflowStepId) {
     return;
   }
 
-  if (target.type === "input") {
+  if (isOnlyWorkflowSourceStep(workflow, target)) {
     elements.workflowMessages.textContent = "";
-    addWorkflowMessage("The input step cannot be removed.", "warning");
+    addWorkflowMessage("The only source step cannot be removed. Replace the starting workflow instead.", "warning");
     return;
   }
 
@@ -4778,43 +5232,39 @@ function removeWorkflowStep(stepId = state.selectedWorkflowStepId) {
 
 async function runAppTool(tool, input, options = {}, context = {}) {
   const { onProgress, signal } = context;
-  if (tool.metadata.runInWorker) {
-    const run = toolWorkerClient.runTool({
-      toolId: tool.metadata.id,
-      input,
-      options,
-      onProgress: (message) => {
-        onProgress?.(message);
-        if (state.workflowRun && context.step) {
-          showWorkflowWorkerProgress(tool, context, message);
-        }
-      }
-    });
-    const abortActiveRun = () => run.cancel();
-    signal?.addEventListener("abort", abortActiveRun, { once: true });
-    if (state.workflowRun && signal === state.workflowRun.abortController.signal) {
-      state.workflowRun.cancelActiveTool = run.cancel;
-    }
-    if (state.toolRun && signal === state.toolRun.abortController.signal) {
-      state.toolRun.cancelActiveTool = run.cancel;
-    }
-    try {
-      return await run.promise;
-    } finally {
-      signal?.removeEventListener("abort", abortActiveRun);
-      if (state.workflowRun?.cancelActiveTool === run.cancel) {
-        state.workflowRun.cancelActiveTool = null;
-      }
-      if (state.toolRun?.cancelActiveTool === run.cancel) {
-        state.toolRun.cancelActiveTool = null;
-      }
-    }
-  }
-
   if (signal?.aborted) {
     throw makeRunAbortError();
   }
-  return tool.run(input, options);
+  const run = toolWorkerClient.runTool({
+    toolId: tool.metadata.id,
+    input,
+    options,
+    onProgress: (message) => {
+      onProgress?.(message);
+      if (state.workflowRun && context.step) {
+        showWorkflowWorkerProgress(tool, context, message);
+      }
+    }
+  });
+  const abortActiveRun = () => run.cancel();
+  signal?.addEventListener("abort", abortActiveRun, { once: true });
+  if (state.workflowRun && signal === state.workflowRun.abortController.signal) {
+    state.workflowRun.cancelActiveTool = run.cancel;
+  }
+  if (state.toolRun && signal === state.toolRun.abortController.signal) {
+    state.toolRun.cancelActiveTool = run.cancel;
+  }
+  try {
+    return await run.promise;
+  } finally {
+    signal?.removeEventListener("abort", abortActiveRun);
+    if (state.workflowRun?.cancelActiveTool === run.cancel) {
+      state.workflowRun.cancelActiveTool = null;
+    }
+    if (state.toolRun?.cancelActiveTool === run.cancel) {
+      state.toolRun.cancelActiveTool = null;
+    }
+  }
 }
 
 async function runSelectedWorkflow() {
@@ -4857,9 +5307,12 @@ async function runSelectedWorkflow() {
     elements.workflowOutput.dataset.rawOutput = formatted.rawText;
     elements.workflowOutput.dataset.filename = formatted.filename ?? "sms3-workflow-output.txt";
     elements.workflowOutput.dataset.mimeType = formatted.mimeType ?? "text/plain";
+    elements.workflowOutput.dataset.visualOutput = formatted.svg ? "true" : "false";
     elements.workflowOutputSummary.textContent = formatted.summary;
     setOutputFormatLabel("workflow", formatted.outputLabel);
     renderWorkflowTableOutput(formatted.tableStream, Boolean(formatted.tableStream));
+    renderVisualOutput("workflow", formatted.svg);
+    elements.workflowOutput.hidden = Boolean(formatted.tableStream || formatted.svg);
     updateOutputActions("workflow", {
       hidden: Boolean(formatted.tableStream),
       mimeType: formatted.mimeType,
@@ -4889,8 +5342,7 @@ async function runSelectedWorkflow() {
 }
 
 function displayToolResult(result) {
-  const choices = getToolOutputChoices(result);
-  renderToolOutputFormatSelect(choices, getSelectedToolOutputFormat(state.selectedTool));
+  renderGeneratedToolOutputChoice(result);
   renderMessages(result);
 }
 
@@ -4907,8 +5359,9 @@ async function runSelectedTool() {
   try {
     elements.messages.textContent = "";
     addMessage(getToolRunStatus(state.selectedTool));
+    const inputText = getSelectedToolInputText();
     displayToolResult(
-      await runAppTool(state.selectedTool, elements.sequenceInput.value, getOptions(), {
+      await runAppTool(state.selectedTool, inputText, getOptions(), {
         signal: abortController.signal,
         onProgress: (message) => {
           const detail = describeWorkerProgress(state.selectedTool, message);
@@ -4974,11 +5427,20 @@ function applyStoredTheme() {
 function applyStoredSidebarState() {
   const collapsed = localStorage.getItem("sms3-sidebar") === "collapsed";
   elements.appShell.classList.toggle("sidebar-collapsed", collapsed);
-  elements.sidebarToggle.setAttribute("aria-pressed", String(collapsed));
-  elements.sidebarToggle.setAttribute(
-    "aria-label",
-    collapsed ? "Show navigation" : "Hide navigation"
-  );
+  elements.appShell.classList.remove("sidebar-mobile-open");
+  updateSidebarToggleState();
+}
+
+function isNavigationHidden() {
+  return mobileNavigationQuery.matches
+    ? !elements.appShell.classList.contains("sidebar-mobile-open")
+    : elements.appShell.classList.contains("sidebar-collapsed");
+}
+
+function updateSidebarToggleState() {
+  const hidden = isNavigationHidden();
+  elements.sidebarToggle.setAttribute("aria-pressed", String(hidden));
+  elements.sidebarToggle.setAttribute("aria-label", hidden ? "Show navigation" : "Hide navigation");
 }
 
 elements.toolSearch.addEventListener("input", renderToolList);
@@ -5022,6 +5484,8 @@ elements.workflowDownloadOutput.addEventListener("click", () => {
 elements.workflowOutputSearch.addEventListener("input", () => queueOutputSearch("workflow"));
 elements.workflowOutputSearchPrevious.addEventListener("click", () => moveOutputSearch("workflow", -1));
 elements.workflowOutputSearchNext.addEventListener("click", () => moveOutputSearch("workflow", 1));
+keepOutputSearchButtonFromScrollingPage(elements.workflowOutputSearchPrevious);
+keepOutputSearchButtonFromScrollingPage(elements.workflowOutputSearchNext);
 elements.loadExample.addEventListener("click", loadSelectedToolExample);
 elements.clearInput.addEventListener("click", clearToolInputOutput);
 elements.sequenceInput.addEventListener("input", updateInputActionButtons);
@@ -5044,18 +5508,14 @@ elements.dropZone.addEventListener("drop", async (event) => {
   await loadInputFile(event.dataTransfer.files?.[0]);
 });
 elements.runTool.addEventListener("click", runSelectedTool);
-elements.outputFormatSelect.addEventListener("change", () => {
-  const choice = state.currentToolOutputChoices.find((item) => item.format === elements.outputFormatSelect.value);
-  if (choice) {
-    applyToolOutputChoice(choice);
-  }
-});
 elements.copyOutput.addEventListener("click", async () => {
   await navigator.clipboard.writeText(elements.toolOutput.dataset.rawOutput || elements.toolOutput.value);
 });
 elements.outputSearch.addEventListener("input", () => queueOutputSearch("tool"));
 elements.outputSearchPrevious.addEventListener("click", () => moveOutputSearch("tool", -1));
 elements.outputSearchNext.addEventListener("click", () => moveOutputSearch("tool", 1));
+keepOutputSearchButtonFromScrollingPage(elements.outputSearchPrevious);
+keepOutputSearchButtonFromScrollingPage(elements.outputSearchNext);
 elements.downloadOutput.addEventListener("click", () => {
   downloadText(
     elements.toolOutput.dataset.rawOutput || elements.toolOutput.value,
@@ -5069,14 +5529,18 @@ elements.themeToggle.addEventListener("change", () => {
   localStorage.setItem("sms3-theme", next);
 });
 elements.sidebarToggle.addEventListener("click", () => {
-  const collapsed = !elements.appShell.classList.contains("sidebar-collapsed");
-  elements.appShell.classList.toggle("sidebar-collapsed", collapsed);
-  localStorage.setItem("sms3-sidebar", collapsed ? "collapsed" : "expanded");
-  elements.sidebarToggle.setAttribute("aria-pressed", String(collapsed));
-  elements.sidebarToggle.setAttribute(
-    "aria-label",
-    collapsed ? "Show navigation" : "Hide navigation"
-  );
+  if (mobileNavigationQuery.matches) {
+    elements.appShell.classList.toggle("sidebar-mobile-open");
+  } else {
+    const collapsed = !elements.appShell.classList.contains("sidebar-collapsed");
+    elements.appShell.classList.toggle("sidebar-collapsed", collapsed);
+    localStorage.setItem("sms3-sidebar", collapsed ? "collapsed" : "expanded");
+  }
+  updateSidebarToggleState();
+});
+mobileNavigationQuery.addEventListener("change", () => {
+  elements.appShell.classList.remove("sidebar-mobile-open");
+  updateSidebarToggleState();
 });
 window.addEventListener("popstate", applyRouteFromHash);
 window.addEventListener("hashchange", applyRouteFromHash);

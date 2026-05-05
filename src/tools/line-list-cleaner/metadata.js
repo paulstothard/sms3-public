@@ -106,7 +106,7 @@ export const lineListCleanerMetadata = {
         {
           id: "outputFormat",
           type: "radio",
-          label: "Copy/download format",
+          label: "Output format",
           defaultValue: "list",
           choices: [
             { value: "list", label: "List text" },

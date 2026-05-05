@@ -67,13 +67,16 @@ export const textSearchReplaceMetadata = {
           type: "text",
           label: "Replace with",
           help: "Replacement text. In regex mode, JavaScript replacement tokens such as $1 can refer to capture groups.",
-          defaultValue: "ID"
+          defaultValue: "ID",
+          visibleWhen: { option: "operation", value: "replace" }
         },
         {
           id: "joinMode",
           type: "select",
-          label: "Join extracted matches with",
+          label: "Extracted match output",
+          help: "Only used when Operation is Extract matches only. Choose whether extracted matches are returned one per line, comma-separated, or tab-separated.",
           defaultValue: "lines",
+          visibleWhen: { option: "operation", value: "extract" },
           choices: [
             { value: "lines", label: "Lines" },
             { value: "comma", label: "Comma + space" },
@@ -85,7 +88,7 @@ export const textSearchReplaceMetadata = {
     {
       id: "outputFormat",
       type: "radio",
-      label: "Copy/download format",
+      label: "Output format",
       defaultValue: "text",
       choices: [
         { value: "text", label: "Result text" },

@@ -2,6 +2,7 @@ import { parseSequenceInput } from "../../core/fasta.js";
 import { motifMatchTableColumns, scanMotifRecords } from "../../core/motif-scanner.js";
 import { makePatternRegex } from "../../core/pattern.js";
 import { cleanSequence, complementDnaRnaSequence, makeSequenceContext } from "../../core/sequence.js";
+import { renderTextAnnotationMap } from "../../core/text-annotation-map.js";
 import { makeTableStream, makeTextStream, makeToolResult } from "../../core/workflow.js";
 
 export const technicalSequenceTableColumns = [
@@ -231,7 +232,9 @@ function scanTechnicalRecord(record, selectedRecords, options = {}) {
       rows: [],
       warnings,
       charactersRemoved: cleaned.removedCount,
-      sequenceLength: 0
+      sequenceLength: 0,
+      title,
+      sequence: ""
     };
   }
 
@@ -283,8 +286,26 @@ function scanTechnicalRecord(record, selectedRecords, options = {}) {
     rows,
     warnings,
     charactersRemoved: cleaned.removedCount,
-    sequenceLength: cleaned.sequence.length
+    sequenceLength: cleaned.sequence.length,
+    title,
+    sequence: cleaned.sequence
   };
+}
+
+function makeTextMap(scannedRecords) {
+  return renderTextAnnotationMap(scannedRecords.map((record) => ({
+    title: record.title,
+    sequence: record.sequence,
+    annotations: record.rows.map((row, index) => ({
+      start: row.start,
+      end: row.end,
+      strand: row.strand,
+      label: `t${index + 1}`
+    }))
+  })), {
+    width: 60,
+    showComplement: true
+  });
 }
 
 function makeTsv(rows) {
@@ -416,6 +437,7 @@ export async function runTechnicalSequenceScanner(input, options = {}, context =
   }
 
   const rows = [];
+  const scannedRecords = [];
   let basesProcessed = 0;
   let charactersRemoved = 0;
 
@@ -430,6 +452,11 @@ export async function runTechnicalSequenceScanner(input, options = {}, context =
       minimumPartialLength
     });
     rows.push(...result.rows);
+    scannedRecords.push({
+      title: result.title,
+      sequence: result.sequence,
+      rows: result.rows
+    });
     warnings.push(...result.warnings);
     basesProcessed += result.sequenceLength;
     charactersRemoved += result.charactersRemoved;
@@ -450,8 +477,9 @@ export async function runTechnicalSequenceScanner(input, options = {}, context =
     provenance
   });
   const tsv = makeTsv(rows);
-  const outputFormat = options.outputFormat === "tsv" ? "tsv" : "report";
-  const output = outputFormat === "tsv" ? tsv : report;
+  const outputFormat = options.outputFormat === "tsv" || options.outputFormat === "text-map" ? options.outputFormat : "report";
+  const textMap = outputFormat === "text-map" ? makeTextMap(scannedRecords) : "";
+  const output = outputFormat === "tsv" ? tsv : outputFormat === "text-map" ? textMap : report;
 
   return makeToolResult({
     output,
@@ -465,6 +493,7 @@ export async function runTechnicalSequenceScanner(input, options = {}, context =
     charactersRemoved,
     streams: {
       report: makeTextStream(report, "text/plain"),
+      ...(outputFormat === "text-map" ? { textMap: makeTextStream(textMap, "text/plain") } : {}),
       table: makeTableStream(technicalSequenceTableColumns, rows, "technical-sequence-scanner")
     }
   });

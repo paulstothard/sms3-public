@@ -25,6 +25,7 @@ export const reverseTranslateMetadata = {
       { id: "proteinRecords", kind: "sequence-records", alphabet: "protein" }
     ],
     outputs: [
+      { id: "primary", kind: "text", mediaType: "text/plain" },
       { id: "fasta", kind: "text", mediaType: "text/x-fasta" },
       { id: "dnaRecords", kind: "sequence-records", alphabet: "dna-rna", schema: "reverse-translated-dna-records" },
       { id: "table", kind: "table", schema: "reverse-translate", columns: reverseTranslateTableColumns },
@@ -51,7 +52,7 @@ export const reverseTranslateMetadata = {
     },
     {
       id: "outputFormat",
-      label: "Copy/download format",
+      label: "Output format",
       type: "radio",
       defaultValue: "fasta",
       choices: [

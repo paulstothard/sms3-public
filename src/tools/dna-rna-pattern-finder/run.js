@@ -1,6 +1,7 @@
 import { parseSequenceInput } from "../../core/fasta.js";
 import { findPatternMatches, makePatternRegex } from "../../core/pattern.js";
 import { cleanDnaRnaSequence, complementDnaRnaSequence, makeSequenceContext } from "../../core/sequence.js";
+import { renderTextAnnotationMap } from "../../core/text-annotation-map.js";
 import { makeTableStream, makeTextStream, makeToolResult } from "../../core/workflow.js";
 
 export const dnaRnaPatternFinderTableColumns = [
@@ -16,6 +17,8 @@ export const dnaRnaPatternFinderTableColumns = [
   { id: "context_sequence", label: "Context sequence", type: "string" }
 ];
 const TSV_COLUMNS = dnaRnaPatternFinderTableColumns.map((column) => column.id);
+const DETAILED_REPORT_MATCH_THRESHOLD = 2000;
+const MATCHED_REGION_RECORD_THRESHOLD = 5000;
 
 function reverseComplement(sequence) {
   return Array.from(complementDnaRnaSequence(sequence, { preserveCase: false })).reverse().join("");
@@ -35,7 +38,8 @@ function getAlphabetMismatchWarning(sequence) {
   return "";
 }
 
-function findDnaRnaMatches(sequence, pattern, options = {}) {
+function findDnaRnaMatches(sequence, pattern, options = {}, context = {}) {
+  context.throwIfCancelled?.();
   const forwardMatches = findPatternMatches(sequence, pattern, { ...options, alphabet: "dna-rna" }).map((match) => ({
     ...match,
     strand: "+"
@@ -45,7 +49,9 @@ function findDnaRnaMatches(sequence, pattern, options = {}) {
     return forwardMatches;
   }
 
+  context.throwIfCancelled?.();
   const rcSequence = reverseComplement(sequence);
+  context.throwIfCancelled?.();
   const reverseMatches = findPatternMatches(rcSequence, pattern, { ...options, alphabet: "dna-rna" }).map((match) => ({
     start: sequence.length - match.end + 1,
     end: sequence.length - match.start + 1,
@@ -73,16 +79,23 @@ function makeRows(records) {
   );
 }
 
-function makeMatchedRegionRecords(records) {
+function makeMatchedRegionRecords(records, maxRecords = Number.POSITIVE_INFINITY) {
+  let remaining = maxRecords;
   return records.flatMap((record) =>
-    record.matches.map((match, index) => ({
-      title: `${record.title} match ${index + 1} ${match.strand}${match.start}-${match.end}`,
-      sequence: match.matchedText,
-      sourceTitle: record.title,
-      strand: match.strand,
-      start: match.start,
-      end: match.end
-    }))
+    record.matches.flatMap((match, index) => {
+      if (remaining <= 0) {
+        return [];
+      }
+      remaining -= 1;
+      return [{
+        title: `${record.title} match ${index + 1} ${match.strand}${match.start}-${match.end}`,
+        sequence: match.matchedText,
+        sourceTitle: record.title,
+        strand: match.strand,
+        start: match.start,
+        end: match.end
+      }];
+    })
   );
 }
 
@@ -126,6 +139,24 @@ function makeReport(records, pattern, options = {}) {
   return lines.join("\n").trimEnd();
 }
 
+function makeSummaryReport(records, pattern, options = {}) {
+  const lines = [];
+  lines.push("DNA/RNA pattern finder");
+  lines.push(`Pattern: ${pattern}`);
+  lines.push(`Pattern mode: ${getModeLabel(options)}`);
+  lines.push(`Strand search: ${options.strand === "both" ? "both strands" : "forward only"}`);
+  lines.push(`Overlapping matches: ${options.allowOverlaps !== false ? "yes" : "no"}`);
+  lines.push("");
+  for (const record of records) {
+    lines.push(`${record.title} pattern matches`);
+    lines.push(`Length: ${record.cleanedLength}`);
+    lines.push(`Matches: ${record.matches.length}`);
+    lines.push("");
+  }
+  lines.push(`Total matches: ${records.reduce((sum, record) => sum + record.matches.length, 0)}`);
+  return lines.join("\n").trimEnd();
+}
+
 function makeTsv(rows) {
   return [
     TSV_COLUMNS.join("\t"),
@@ -146,7 +177,24 @@ function makeTsv(rows) {
   ].join("\n");
 }
 
-export function runDnaRnaPatternFinder(input, options = {}) {
+function makeTextMap(records) {
+  return renderTextAnnotationMap(records.map((record) => ({
+    title: record.title,
+    sequence: record.sequence,
+    annotations: record.matches.map((match, index) => ({
+      start: match.start,
+      end: match.end,
+      strand: match.strand,
+      label: `m${index + 1}`
+    }))
+  })), {
+    width: 60,
+    showComplement: true
+  });
+}
+
+export function runDnaRnaPatternFinder(input, options = {}, context = {}) {
+  context.reportProgress?.({ phase: "parsing-input", progress: 0.05 });
   const records = parseSequenceInput(input, "sequence");
   const warnings = [];
   const pattern = String(options.pattern ?? "").trim();
@@ -187,7 +235,14 @@ export function runDnaRnaPatternFinder(input, options = {}) {
   let basesProcessed = 0;
   let charactersRemoved = 0;
 
-  for (const record of records) {
+  records.forEach((record, recordIndex) => {
+    context.throwIfCancelled?.();
+    context.reportProgress?.({
+      phase: "scanning",
+      progress: 0.1 + (recordIndex / Math.max(1, records.length)) * 0.75,
+      recordsProcessed: recordIndex,
+      totalRecords: records.length
+    });
     const mismatchWarning = getAlphabetMismatchWarning(record.sequence);
     if (mismatchWarning) {
       warnings.push(`${record.title}: ${mismatchWarning}`);
@@ -210,8 +265,11 @@ export function runDnaRnaPatternFinder(input, options = {}) {
 
     let matches = [];
     try {
-      matches = findDnaRnaMatches(cleaned.sequence, pattern, options);
+      matches = findDnaRnaMatches(cleaned.sequence, pattern, options, context);
     } catch (error) {
+      if (error?.name === "AbortError") {
+        throw error;
+      }
       warnings.push(`${record.title}: ${error.message}`);
     }
 
@@ -221,13 +279,29 @@ export function runDnaRnaPatternFinder(input, options = {}) {
       sequence: cleaned.sequence,
       matches
     });
-  }
+  });
 
+  context.throwIfCancelled?.();
+  context.reportProgress?.({ phase: "building-output", progress: 0.9 });
+  const outputFormat = options.outputFormat === "tsv" || options.outputFormat === "text-map" ? options.outputFormat : "report";
+  const totalMatches = analyzedRecords.reduce((sum, record) => sum + record.matches.length, 0);
+  if (totalMatches > MATCHED_REGION_RECORD_THRESHOLD) {
+    warnings.push(
+      `Matched-region sequence stream was capped at ${MATCHED_REGION_RECORD_THRESHOLD} of ${totalMatches} matches to avoid duplicating a very large hit set. Use the table output for all coordinates.`
+    );
+  }
+  if (outputFormat === "report" && totalMatches > DETAILED_REPORT_MATCH_THRESHOLD) {
+    warnings.push(
+      `Detailed report rows were summarized because this run found ${totalMatches} matches. Use TSV table output for the full hit table.`
+    );
+  }
   const tableRows = makeRows(analyzedRecords);
-  const matchedRegions = makeMatchedRegionRecords(analyzedRecords);
-  const reportOutput = makeReport(analyzedRecords, pattern, options);
-  const outputFormat = options.outputFormat === "tsv" ? "tsv" : "report";
-  const output = outputFormat === "tsv" ? makeTsv(tableRows) : reportOutput;
+  const matchedRegions = makeMatchedRegionRecords(analyzedRecords, MATCHED_REGION_RECORD_THRESHOLD);
+  const reportOutput = outputFormat === "report" && totalMatches > DETAILED_REPORT_MATCH_THRESHOLD
+    ? makeSummaryReport(analyzedRecords, pattern, options)
+    : makeReport(analyzedRecords, pattern, options);
+  const textMap = outputFormat === "text-map" ? makeTextMap(analyzedRecords) : "";
+  const output = outputFormat === "tsv" ? makeTsv(tableRows) : outputFormat === "text-map" ? textMap : reportOutput;
 
   return makeToolResult({
     output,
@@ -244,6 +318,7 @@ export function runDnaRnaPatternFinder(input, options = {}) {
     charactersRemoved,
     streams: {
       report: makeTextStream(reportOutput, "text/plain"),
+      ...(outputFormat === "text-map" ? { textMap: makeTextStream(textMap, "text/plain") } : {}),
       table: makeTableStream(dnaRnaPatternFinderTableColumns, tableRows, "dna-rna-pattern-finder"),
       matchedRegions: {
         kind: "sequence-records",
@@ -253,4 +328,13 @@ export function runDnaRnaPatternFinder(input, options = {}) {
       }
     }
   });
+}
+
+export async function runDnaRnaPatternFinderWorker(input, options = {}, context = {}) {
+  context.reportProgress?.({ phase: "started", progress: 0 });
+  await context.yieldIfNeeded?.();
+  const result = runDnaRnaPatternFinder(input, options, context);
+  await context.yieldIfNeeded?.();
+  context.reportProgress?.({ phase: "finished", progress: 1 });
+  return result;
 }

@@ -94,7 +94,8 @@
                 <div id="dropZone" class="drop-zone">
                   <span id="dropZoneLabel">Drop a file here</span>
                 </div>
-                <textarea id="sequenceInput" spellcheck="false"></textarea>
+                <textarea id="sequenceInput" spellcheck="false" wrap="off"></textarea>
+                <div id="splitInputPanel" class="split-input-panel" hidden></div>
               </section>
 
             <section class="options-panel" aria-labelledby="optionsTitle">
@@ -271,15 +272,16 @@
                 </div>
               </section>
 
-              <section class="input-panel" aria-labelledby="workflowInputTitle">
+              <section id="workflowInputPanel" class="input-panel" aria-labelledby="workflowInputTitle">
                 <div class="panel-heading">
                   <h3 id="workflowInputTitle">Workflow Input</h3>
-                  <div class="button-row">
+                  <div id="workflowInputActions" class="button-row">
                     <button id="workflowLoadExample" type="button">Load example</button>
                     <button id="workflowClearInput" type="button">Clear input</button>
                   </div>
                 </div>
-                <textarea id="workflowInput" spellcheck="false"></textarea>
+                <p id="workflowInputNote" class="summary" hidden></p>
+                <textarea id="workflowInput" spellcheck="false" wrap="off"></textarea>
                 <div class="run-button-row">
                   <button id="runWorkflow" class="primary-button" type="button">Run workflow</button>
                   <button id="cancelWorkflow" type="button" hidden>Cancel workflow</button>
@@ -317,6 +319,7 @@
                   <textarea id="workflowOutput" readonly spellcheck="false" wrap="off"></textarea>
                   <div id="workflowTableOutput" class="table-output" hidden></div>
                 </div>
+                <div id="workflowVisualOutput" class="visual-output" hidden></div>
               </section>
 
               <details class="result-panel workflow-json-panel">

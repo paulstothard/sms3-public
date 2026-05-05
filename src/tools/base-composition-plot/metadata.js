@@ -77,7 +77,7 @@ export const baseCompositionPlotMetadata = {
     {
       id: "outputFormat",
       type: "radio",
-      label: "Copy/download format",
+      label: "Output format",
       defaultValue: "svg-plot",
       choices: [
         { value: "report", label: "Summary report" },

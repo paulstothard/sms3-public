@@ -27,6 +27,7 @@ function makeWorkflow(alphabet, schema) {
       { id: "sequenceRecords", kind: "sequence-records", alphabet }
     ],
     outputs: [
+      { id: "primary", kind: "text", mediaType: "text/plain" },
       { id: "report", kind: "text", mediaType: "text/plain" },
       { id: "table", kind: "table", schema, columns: motifMatchTableColumns },
       { id: "warnings", kind: "warnings" }
@@ -38,7 +39,7 @@ const sharedOutputOptions = [
   {
     id: "outputFormat",
     type: "radio",
-    label: "Copy/download format",
+    label: "Output format",
     defaultValue: "report",
     choices: [
       { value: "report", label: "Summary report" },

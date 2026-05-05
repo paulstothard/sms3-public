@@ -26,6 +26,7 @@ export const codonUsageComparisonMetadata = {
       { id: "orfRecords", kind: "orf-records", schema: "orf-finder" }
     ],
     outputs: [
+      { id: "primary", kind: "text", mediaType: "text/plain" },
       { id: "report", kind: "text", mediaType: "text/plain" },
       { id: "table", kind: "table", schema: "codon-usage-comparison", columns: codonUsageComparisonTableColumns },
       { id: "warnings", kind: "warnings" }
@@ -47,11 +48,11 @@ export const codonUsageComparisonMetadata = {
     },
     {
       id: "outputFormat",
-      label: "Copy/download format",
+      label: "Output format",
       type: "radio",
       defaultValue: "report",
       choices: [
-        { value: "report", label: "Report" },
+        { value: "report", label: "Summary report" },
         { value: "tsv", label: "TSV table" }
       ]
     },

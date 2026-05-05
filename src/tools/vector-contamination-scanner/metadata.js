@@ -18,6 +18,7 @@ export const vectorContaminationScannerMetadata = {
       { id: "sequenceRecords", kind: "sequence-records", alphabet: "dna-rna" }
     ],
     outputs: [
+      { id: "primary", kind: "text", mediaType: "text/plain" },
       { id: "report", kind: "text", mediaType: "text/plain" },
       {
         id: "table",
@@ -77,7 +78,7 @@ export const vectorContaminationScannerMetadata = {
     {
       id: "outputFormat",
       type: "radio",
-      label: "Copy/download format",
+      label: "Output format",
       defaultValue: "report",
       choices: [
         { value: "report", label: "Summary report" },

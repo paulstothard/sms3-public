@@ -7,6 +7,10 @@ export const toolTagVocabulary = [
   "FASTA",
   "CSV",
   "TSV",
+  "GenBank",
+  "EMBL",
+  "DDBJ",
+  "UniProt",
   "IUPAC",
   "GC",
   "ORF",
@@ -14,6 +18,7 @@ export const toolTagVocabulary = [
   "Kyte-Doolittle",
   "pI",
   "adapter",
+  "alignment",
   "annotation",
   "charge",
   "cleaning",
@@ -48,7 +53,7 @@ export const toolTagVocabularySet = new Set(toolTagVocabulary);
 
 const toolTagOrderGroups = [
   ["DNA", "RNA", "protein", "table", "text"],
-  ["FASTA", "CSV", "TSV", "IUPAC"],
+  ["FASTA", "CSV", "TSV", "GenBank", "EMBL", "DDBJ", "UniProt", "IUPAC"],
   [
     "GC",
     "composition",
@@ -57,6 +62,7 @@ const toolTagOrderGroups = [
     "technical sequence",
     "vector",
     "adapter",
+    "alignment",
     "primer",
     "contamination",
     "restriction",

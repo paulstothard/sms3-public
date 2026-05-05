@@ -12,7 +12,7 @@ const baseOptions = [
   {
     id: "outputFormat",
     type: "radio",
-    label: "Copy/download format",
+    label: "Output format",
     defaultValue: "fasta",
     choices: [
       { value: "fasta", label: "FASTA records" },

@@ -32,6 +32,52 @@ function getToolOutputContract(tool, streamId = "primary") {
   return tool?.metadata.workflow?.outputs?.find((output) => output.id === streamId);
 }
 
+function flattenOptions(options = []) {
+  return options.flatMap((option) =>
+    option.type === "group" ? flattenOptions(option.options ?? []) : [option]
+  );
+}
+
+function inferOutputFormatForStream(tool, streamName = "primary") {
+  if (streamName === "primary") {
+    return undefined;
+  }
+
+  const outputFormat = flattenOptions(tool?.metadata.options ?? []).find((option) => option.id === "outputFormat");
+  const choices = new Set((outputFormat?.choices ?? []).map((choice) => choice.value));
+  const candidates = {
+    report: ["report"],
+    table: ["tsv", "csv"],
+    tsv: ["tsv"],
+    featuresTsv: ["features-tsv", "tsv"],
+    textMap: ["text-map"],
+    overview: ["svg-overview", "svg-map"],
+    plot: ["svg-plot"],
+    fasta: ["fasta"],
+    nucleotideFasta: ["nucleotide-fasta", "fasta"],
+    proteinFasta: ["protein-fasta", "fasta"],
+    wholeFasta: ["whole-fasta", "fasta"],
+    cdsFasta: ["cds-fasta", "fasta"],
+    cleanedText: ["cleaned"],
+    listText: ["text"],
+    groupedText: ["text"],
+    text: ["text"]
+  }[streamName] ?? [];
+
+  return candidates.find((candidate) => choices.has(candidate));
+}
+
+function makeToolOptionsForSelectedStream(tool, step) {
+  const options = { ...(step.options ?? {}) };
+  if (!Object.hasOwn(options, "outputFormat")) {
+    const inferred = inferOutputFormatForStream(tool, step.selectStream ?? "primary");
+    if (inferred) {
+      options.outputFormat = inferred;
+    }
+  }
+  return options;
+}
+
 function getStream(result, streamName = "primary") {
   if (!result?.streams) {
     return undefined;
@@ -428,7 +474,7 @@ async function runToolStep(step, value, context) {
   }
 
   const inputValue = resolveStepInput(step, value, context);
-  const result = await runWorkflowTool(tool, streamToToolInput(inputValue), step.options ?? {}, context);
+  const result = await runWorkflowTool(tool, streamToToolInput(inputValue), makeToolOptionsForSelectedStream(tool, step), context);
   context.lastToolResult = result;
   return selectToolResultStream(step, result);
 }
@@ -448,7 +494,7 @@ async function runMapToolStep(step, value, context) {
   const items = [];
   for (const [index, item] of inputValue.items.entries()) {
     throwIfAborted(context.signal);
-    const result = await runWorkflowTool(tool, streamToToolInput(item), step.options ?? {}, context);
+    const result = await runWorkflowTool(tool, streamToToolInput(item), makeToolOptionsForSelectedStream(tool, step), context);
     toolResults.push(result);
     const streamName = step.selectStream ?? "primary";
     const selected = getStream(result, streamName);

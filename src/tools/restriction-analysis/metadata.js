@@ -14,6 +14,9 @@ export const restrictionAnalysisMetadata = {
   summary: "Find restriction sites, estimate digest fragments, and draw a simple restriction map.",
   inputType: "DNA sequence",
   outputType: "Restriction report, tables, map",
+  runInWorker: true,
+  workerModule: "../tools/restriction-analysis/run.js",
+  workerExport: "runRestrictionAnalysis",
   workflow: {
     inputs: [
       { id: "input", kind: "text", mediaType: "text/plain" },
@@ -22,6 +25,7 @@ export const restrictionAnalysisMetadata = {
     outputs: [
       { id: "primary", kind: "text", mediaType: "text/plain" },
       { id: "report", kind: "text", mediaType: "text/plain" },
+      { id: "textMap", kind: "text", mediaType: "text/plain" },
       { id: "table", kind: "table", schema: "restriction-sites", columns: restrictionHitTableColumns },
       { id: "fragments", kind: "table", schema: "restriction-fragments", columns: restrictionFragmentTableColumns },
       { id: "mapTable", kind: "table", schema: "restriction-map", columns: restrictionMapTableColumns },
@@ -74,12 +78,13 @@ export const restrictionAnalysisMetadata = {
     {
       id: "outputFormat",
       type: "radio",
-      label: "Copy/download format",
+      label: "Output format",
       defaultValue: "svg-overview",
       choices: [
         { value: "svg-overview", label: "SVG restriction map" },
         { value: "report", label: "Summary report" },
-        { value: "tsv", label: "TSV site table" }
+        { value: "tsv", label: "TSV site table" },
+        { value: "text-map", label: "Text annotation map" }
       ]
     },
     {

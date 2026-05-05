@@ -18,12 +18,23 @@ export function validateWorkflowContract(metadata) {
   }
 
   for (const key of ["inputs", "outputs"]) {
-    if (!Array.isArray(metadata.workflow[key]) || metadata.workflow[key].length === 0) {
-      errors.push(`${metadata.id}: workflow.${key} must be a non-empty array`);
+    const streams = metadata.workflow[key];
+    if (!Array.isArray(streams)) {
+      errors.push(`${metadata.id}: workflow.${key} must be an array`);
       continue;
     }
 
-    for (const stream of metadata.workflow[key]) {
+    if (key === "outputs" && streams.length === 0) {
+      errors.push(`${metadata.id}: workflow.outputs must be a non-empty array`);
+      continue;
+    }
+
+    if (key === "inputs" && streams.length === 0 && metadata.inputRequired !== false) {
+      errors.push(`${metadata.id}: workflow.inputs must be non-empty unless inputRequired is false`);
+      continue;
+    }
+
+    for (const stream of streams) {
       if (!stream.id || typeof stream.id !== "string") {
         errors.push(`${metadata.id}: workflow.${key} stream is missing a string id`);
       }

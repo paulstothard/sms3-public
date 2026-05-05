@@ -100,7 +100,7 @@ export const orfFinderMetadata = {
     {
       id: "outputFormat",
       type: "radio",
-      label: "Copy/download format",
+      label: "Output format",
       defaultValue: "report",
       choices: [
         { value: "report", label: "Summary report" },
