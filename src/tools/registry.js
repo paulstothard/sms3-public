@@ -26,6 +26,8 @@ import { fastaValidatorNormalizerMetadata } from "./fasta-validator-normalizer/m
 import { runFastaValidatorNormalizer } from "./fasta-validator-normalizer/run.js";
 import { fastqSummaryMetadata } from "./fastq-summary/metadata.js";
 import { runFastqSummary } from "./fastq-summary/run.js";
+import { inSilicoPcrMetadata } from "./in-silico-pcr/metadata.js";
+import { runInSilicoPcr } from "./in-silico-pcr/run.js";
 import { fastaHeaderRenameMetadata } from "./fasta-header-rename/metadata.js";
 import { runFastaHeaderRename } from "./fasta-header-rename/run.js";
 import { fastaLengthFilterMetadata } from "./fasta-length-filter/metadata.js";
@@ -66,6 +68,14 @@ import {
   runDnaRnaMotifScanner,
   runProteinMotifScanner
 } from "./motif-scanner/run.js";
+import {
+  multipleAlignDnaRnaMetadata,
+  multipleAlignProteinMetadata
+} from "./multiple-sequence-alignment/metadata.js";
+import {
+  runMultipleAlignDnaRna,
+  runMultipleAlignProtein
+} from "./multiple-sequence-alignment/run.js";
 import { technicalSequenceScannerMetadata } from "./technical-sequence-scanner/metadata.js";
 import { vectorContaminationScannerMetadata } from "./vector-contamination-scanner/metadata.js";
 import { vcfGenotypeTableMetadata } from "./vcf-genotype-table/metadata.js";
@@ -74,8 +84,6 @@ import { proteinHydropathyMetadata } from "./protein-hydropathy/metadata.js";
 import { runProteinHydropathy } from "./protein-hydropathy/run.js";
 import { proteinPatternFinderMetadata } from "./protein-pattern-finder/metadata.js";
 import { runProteinPatternFinder } from "./protein-pattern-finder/run.js";
-import { pairedFastqCheckerMetadata } from "./paired-fastq-checker/metadata.js";
-import { runPairedFastqChecker } from "./paired-fastq-checker/run.js";
 import { proteinStatsMetadata } from "./protein-stats/metadata.js";
 import { runProteinStats } from "./protein-stats/run.js";
 import { primerOligoPropertiesMetadata } from "./primer-oligo-properties/metadata.js";
@@ -211,6 +219,16 @@ ATGNNNACGTRYSWKM`
 GCCRCCATGGTTAGGAGGTTATAATGTTGACAAATAAATATAAT
 >polyA reverse example
 TTTATTCCCGGGTTGACATATAAT`
+  },
+  {
+    metadata: multipleAlignDnaRnaMetadata,
+    run: runMultipleAlignDnaRna,
+    example: `>HBB_human_fragment
+ATGGTGCACCTGACTCCTGAGGAGAAGTCTGCCGTTACTGCCCTGTGGGGCAAGGTGAACGTGGATGAAGTTGGT
+>HBB_chimp_fragment
+ATGGTGCACCTGACTCCTGAGGAGAAGTCTGCCGTTACTGCCCTGTGGGGCAAGGTGAACGTGGATGAAGTTGGT
+>HBB_mouse_fragment
+ATGGTGCACCTGACTCCTGAGGAGAAGTCTGCCGTTACCGCCCTGTGGGGCAAGGTGAACGTGGATGAAGTTGGT`
   },
   {
     metadata: technicalSequenceScannerMetadata,
@@ -475,16 +493,17 @@ NNNNACGTACGTACGTACGTNNNN
 !!!!IIIIIIIIIIIIIIII!!!!`
   },
   {
-    metadata: pairedFastqCheckerMetadata,
-    run: runPairedFastqChecker,
-    example: `SRR2584863_S1_L001_R1_001.fastq.gz
-SRR2584863_S1_L001_R2_001.fastq.gz
-SRR2584864_S2_L001_R1_001.fastq.gz
-SRR2584864_S2_L001_R2_001.fastq.gz
-SRR2584865_S3_L001_R1_001.fastq.gz
-SRR2584865_S3_L001_R2_001.fastq.gz
-SRR2584866_S4_L001_R1_001.fastq.gz
-SRR2584867_S5_L001_R2_001.fastq.gz`
+    metadata: inSilicoPcrMetadata,
+    run: runInSilicoPcr,
+    example: `>pUC19_mcs_region
+TTGACGGCTAGCTCAGTCCTAGGTACCGGATCCGATGCTAGCGGGAATTCGAGCTCGGTACCAAGCTTACGCGT
+---
+>BamHI_forward
+GGATCCGATGCT
+>HindIII_reverse
+AAGCTTGGTACC
+>EcoRI_forward
+GAATTCGAGCTC`
   },
   {
     metadata: fastaLengthFilterMetadata,
@@ -570,6 +589,16 @@ MKTIIALSYIFCLVFADYKDDDDK`
 MAAKKKKGGNNSTAGTAREGAASTDEAAASKL
 >candidate myristoylation
 MGNNSTAA`
+  },
+  {
+    metadata: multipleAlignProteinMetadata,
+    run: runMultipleAlignProtein,
+    example: `>HBB_human_fragment
+MVHLTPEEKSAVTALWGKVNVDEVG
+>HBB_chimp_fragment
+MVHLTPEEKSAVTALWGKVNVDEVG
+>HBB_mouse_fragment
+MVHLTPEEKSAVTGLWGKVNVDEVG`
   },
   {
     metadata: primerOligoPropertiesMetadata,

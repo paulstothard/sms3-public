@@ -2,6 +2,7 @@ import { parseSequenceInput } from "../../core/fasta.js";
 import {
   findRestrictionSites,
   makeRestrictionFragments,
+  makeRestrictionGelSvg,
   makeRestrictionMapSvg,
   restrictionFragmentTableColumns,
   restrictionHitTableColumns,
@@ -25,7 +26,7 @@ function normalizeOptions(options = {}) {
     minimumSites: Math.max(0, Number.parseInt(options.minimumSites ?? 1, 10) || 0),
     maximumSites: Math.max(1, Number.parseInt(options.maximumSites ?? 999, 10) || 999),
     keepGaps: options.keepGaps === true,
-    outputFormat: new Set(["report", "tsv", "svg-overview", "text-map"]).has(options.outputFormat)
+    outputFormat: new Set(["report", "tsv", "svg-overview", "svg-gel", "text-map"]).has(options.outputFormat)
       ? options.outputFormat
       : "svg-overview"
   };
@@ -290,11 +291,14 @@ export function runRestrictionAnalysis(input, options = {}) {
       "Use the site table or tighten the enzyme/site-count filters for a drawable map."
     ]);
   }
+  const gelSvg = normalized.outputFormat === "svg-gel" ? makeRestrictionGelSvg(analyzedRecords, normalized) : "";
   const textMap = normalized.outputFormat === "text-map" ? makeTextMap(analyzedRecords) : "";
   const output = normalized.outputFormat === "tsv"
     ? tsv
     : normalized.outputFormat === "svg-overview"
       ? svgMap
+      : normalized.outputFormat === "svg-gel"
+        ? gelSvg
       : normalized.outputFormat === "text-map"
         ? textMap
       : report;
@@ -302,11 +306,11 @@ export function runRestrictionAnalysis(input, options = {}) {
   return makeToolResult({
     output,
     download: {
-      filename: `restriction-analysis.${normalized.outputFormat === "tsv" ? "tsv" : normalized.outputFormat === "svg-overview" ? "svg" : "txt"}`,
+      filename: `restriction-analysis.${normalized.outputFormat === "tsv" ? "tsv" : normalized.outputFormat === "svg-overview" || normalized.outputFormat === "svg-gel" ? "svg" : "txt"}`,
       mimeType:
         normalized.outputFormat === "tsv"
           ? "text/tab-separated-values"
-          : normalized.outputFormat === "svg-overview"
+          : normalized.outputFormat === "svg-overview" || normalized.outputFormat === "svg-gel"
             ? "image/svg+xml;charset=utf-8"
             : "text/plain;charset=utf-8"
     },
@@ -320,8 +324,9 @@ export function runRestrictionAnalysis(input, options = {}) {
       table: makeTableStream(restrictionHitTableColumns, siteRows, "restriction-sites"),
       fragments: makeTableStream(restrictionFragmentTableColumns, fragmentRows, "restriction-fragments"),
       mapTable: makeTableStream(restrictionMapTableColumns, mapRows, "restriction-map"),
-      ...(normalized.outputFormat === "svg-overview" ? { overview: makeTextStream(svgMap, "image/svg+xml") } : {})
+      ...(normalized.outputFormat === "svg-overview" ? { overview: makeTextStream(svgMap, "image/svg+xml") } : {}),
+      ...(normalized.outputFormat === "svg-gel" ? { gel: makeTextStream(gelSvg, "image/svg+xml") } : {})
     },
-    visual: normalized.outputFormat === "svg-overview" ? { svg: svgMap } : undefined
+    visual: normalized.outputFormat === "svg-overview" ? { svg: svgMap } : normalized.outputFormat === "svg-gel" ? { svg: gelSvg } : undefined
   });
 }

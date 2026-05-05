@@ -30,6 +30,8 @@ export const restrictionMapTableColumns = [
   { id: "record_length", label: "Record length", type: "number" }
 ];
 
+export const COMMON_DNA_LADDER_BP = [10000, 8000, 6000, 5000, 4000, 3000, 2000, 1500, 1000, 750, 500, 250, 100];
+
 function reverseComplement(sequence) {
   return Array.from(complementDnaRnaSequence(sequence, { preserveCase: false })).reverse().join("");
 }
@@ -418,6 +420,101 @@ export function makeRestrictionMapSvg(records, options = {}) {
     return renderCircularRestrictionMap(records[0]);
   }
   return renderLinearRestrictionMap(records, options);
+}
+
+function apparentGelSize(fragment, record, options = {}) {
+  const uncutCircular = options.topology === "circular" && (record.hits ?? []).length === 0 && fragment.topology === "circular";
+  return uncutCircular ? Math.max(20, fragment.length * 0.68) : fragment.length;
+}
+
+export function makeRestrictionGelSvg(records, options = {}) {
+  const laneCount = records.length + 1;
+  const margin = { top: 96, right: 30, bottom: 54, left: 58 };
+  const width = Math.max(720, margin.left + margin.right + laneCount * 110);
+  const laneWidth = (width - margin.left - margin.right) / laneCount;
+  const gelWidth = width;
+  const gelHeight = 430;
+  const height = margin.top + gelHeight + margin.bottom;
+  const laneCenter = (index) => margin.left + laneWidth * index + laneWidth / 2;
+  const minBp = 80;
+  const maxBp = Math.max(
+    12000,
+    ...COMMON_DNA_LADDER_BP,
+    ...records.flatMap((record) => (record.fragments ?? []).map((fragment) => fragment.length))
+  );
+  const logMin = Math.log10(minBp);
+  const logMax = Math.log10(maxBp);
+  const yForSize = (size) => {
+    const clamped = Math.max(minBp, Math.min(maxBp, size));
+    const fraction = (logMax - Math.log10(clamped)) / Math.max(0.1, logMax - logMin);
+    return margin.top + 18 + fraction * (gelHeight - 38);
+  };
+  const bandWidthForSize = (size) => Math.max(28, Math.min(58, 34 + Math.log10(Math.max(100, size)) * 4));
+  const parts = [
+    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${height}" role="img" aria-label="Simulated restriction digest gel">`,
+    "<defs>",
+    '<filter id="bandBlur" x="-30%" y="-80%" width="160%" height="260%"><feGaussianBlur stdDeviation="1.6"/></filter>',
+    '<linearGradient id="gelBackground" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="#101c35"/><stop offset="0.55" stop-color="#172a4c"/><stop offset="1" stop-color="#203862"/></linearGradient>',
+    '<radialGradient id="wellGlow" cx="50%" cy="40%" r="65%"><stop offset="0" stop-color="#4b6f9e" stop-opacity="0.45"/><stop offset="1" stop-color="#14233e" stop-opacity="0"/></radialGradient>',
+    "</defs>",
+    "<style>",
+    ".title{font:700 18px system-ui,sans-serif;fill:#18202a}",
+    ".subtitle{font:12px system-ui,sans-serif;fill:#53616d}",
+    ".lane-label{font:600 11px system-ui,sans-serif;fill:#24313d;text-anchor:middle}",
+    ".size-label{font:10px system-ui,sans-serif;fill:#d7e8ff;text-anchor:end}",
+    ".gel-note{font:11px system-ui,sans-serif;fill:#53616d}",
+    ".band{fill:#c9efff;opacity:0.86;filter:url(#bandBlur)}",
+    ".ladder-band{fill:#e7f8ff;opacity:0.94;filter:url(#bandBlur)}",
+    "</style>",
+    `<rect x="0" y="0" width="${width}" height="${height}" fill="white"/>`,
+    '<text class="title" x="24" y="34">Simulated restriction digest gel</text>',
+    `<text class="subtitle" x="24" y="54">One sample lane per sequence, plus a common 100 bp-10 kb DNA ladder.</text>`,
+    `<rect x="${margin.left}" y="${margin.top}" width="${gelWidth - margin.left - margin.right}" height="${gelHeight}" rx="8" fill="url(#gelBackground)"/>`,
+    `<rect x="${margin.left}" y="${margin.top}" width="${gelWidth - margin.left - margin.right}" height="${gelHeight}" rx="8" fill="url(#wellGlow)" opacity="0.65"/>`
+  ];
+
+  for (let index = 0; index < laneCount; index += 1) {
+    const center = laneCenter(index);
+    parts.push(`<rect x="${(center - 24).toFixed(1)}" y="${margin.top + 8}" width="48" height="16" rx="4" fill="#091426" opacity="0.72"/>`);
+    parts.push(`<line x1="${center.toFixed(1)}" y1="${margin.top + 26}" x2="${center.toFixed(1)}" y2="${margin.top + gelHeight - 10}" stroke="#d8ecff" stroke-opacity="0.055" stroke-width="54"/>`);
+  }
+
+  parts.push(`<text class="lane-label" x="${laneCenter(0)}" y="${margin.top - 14}">Ladder</text>`);
+  for (const size of COMMON_DNA_LADDER_BP) {
+    const y = yForSize(size);
+    const intensity = [10000, 5000, 3000, 1000, 500].includes(size) ? 1 : 0.72;
+    parts.push(`<rect class="ladder-band" x="${(laneCenter(0) - bandWidthForSize(size) / 2).toFixed(1)}" y="${(y - 2.2).toFixed(1)}" width="${bandWidthForSize(size).toFixed(1)}" height="4.4" rx="2.2" opacity="${intensity}"/>`);
+    if ([10000, 5000, 3000, 1000, 500, 100].includes(size)) {
+      parts.push(`<text class="size-label" x="${(laneCenter(0) - 36).toFixed(1)}" y="${(y + 3).toFixed(1)}">${size.toLocaleString()}</text>`);
+    }
+  }
+
+  records.forEach((record, recordIndex) => {
+    const laneIndex = recordIndex + 1;
+    const center = laneCenter(laneIndex);
+    const label = truncateTextToWidth(record.title, laneWidth - 8, 6.2);
+    parts.push(`<text class="lane-label" x="${center.toFixed(1)}" y="${margin.top - 14}" data-full-title="${escapeXml(record.title)}">${escapeXml(label)}</text>`);
+    const fragments = record.fragments?.length ? record.fragments : [{ length: record.length, topology: options.topology ?? "linear" }];
+    for (const fragment of fragments) {
+      if (fragment.length <= 0) {
+        continue;
+      }
+      const apparentSize = apparentGelSize(fragment, record, options);
+      const y = yForSize(apparentSize);
+      const bandWidth = bandWidthForSize(fragment.length);
+      const isUncutCircular = options.topology === "circular" && (record.hits ?? []).length === 0 && fragment.topology === "circular";
+      const heightScale = isUncutCircular ? 5.8 : 4.2;
+      const opacity = Math.max(0.38, Math.min(0.92, 0.42 + Math.log10(Math.max(100, fragment.length)) / 8));
+      parts.push(`<rect class="band" x="${(center - bandWidth / 2).toFixed(1)}" y="${(y - heightScale / 2).toFixed(1)}" width="${bandWidth.toFixed(1)}" height="${heightScale.toFixed(1)}" rx="${(heightScale / 2).toFixed(1)}" opacity="${opacity.toFixed(2)}"/>`);
+      if (isUncutCircular) {
+        parts.push(`<path d="M ${(center - bandWidth / 2).toFixed(1)} ${(y + 5).toFixed(1)} C ${(center - 10).toFixed(1)} ${(y + 9).toFixed(1)}, ${(center + 10).toFixed(1)} ${(y + 1).toFixed(1)}, ${(center + bandWidth / 2).toFixed(1)} ${(y + 5).toFixed(1)}" fill="none" stroke="#e2f8ff" stroke-opacity="0.55" stroke-width="1.2"/>`);
+      }
+    }
+  });
+
+  parts.push(`<text class="gel-note" x="24" y="${height - 20}">Qualitative log-size gel; uncut circular DNA is drawn with faster apparent mobility.</text>`);
+  parts.push("</svg>");
+  return parts.join("");
 }
 
 function escapeXml(value) {

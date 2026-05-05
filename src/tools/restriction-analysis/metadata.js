@@ -30,6 +30,7 @@ export const restrictionAnalysisMetadata = {
       { id: "fragments", kind: "table", schema: "restriction-fragments", columns: restrictionFragmentTableColumns },
       { id: "mapTable", kind: "table", schema: "restriction-map", columns: restrictionMapTableColumns },
       { id: "overview", kind: "text", mediaType: "image/svg+xml" },
+      { id: "gel", kind: "text", mediaType: "image/svg+xml" },
       { id: "warnings", kind: "warnings" }
     ]
   },
@@ -82,6 +83,7 @@ export const restrictionAnalysisMetadata = {
       defaultValue: "svg-overview",
       choices: [
         { value: "svg-overview", label: "SVG restriction map" },
+        { value: "svg-gel", label: "Simulated gel" },
         { value: "report", label: "Summary report" },
         { value: "tsv", label: "TSV site table" },
         { value: "text-map", label: "Text annotation map" }
