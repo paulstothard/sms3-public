@@ -20,18 +20,21 @@ export const referenceDataManifest = {
     {
       "id": "motifs",
       "name": "DNA/RNA and protein motif references",
-      "fetchScript": null,
+      "fetchScript": "reference-data:fetch:motifs",
       "buildScript": "reference-data:build:motifs",
-      "requiresNetworkForFetch": false,
+      "requiresNetworkForFetch": true,
       "offlineBuild": true,
-      "sourceDirectory": null,
+      "sourceDirectory": "scripts/reference-data/sources/motifs",
       "generatedFiles": [
         "src/reference-data/motifs/dna-rna-motifs.json",
+        "src/reference-data/motifs/dna-rna-motifs.js",
         "src/reference-data/motifs/protein-motifs.json",
+        "src/reference-data/motifs/protein-motifs.js",
+        "src/reference-data/motifs/provenance.js",
         "src/reference-data/motifs/provenance.json"
       ],
       "validationTest": "test/reference-data-motifs.test.js",
-      "notes": "Currently a small curated seed set; external imports need source-specific build code and redistribution review."
+      "notes": "Builds curated motif records and, when the ignored JASPAR source cache is present, bundled JASPAR 2024 CORE PWM-ready DNA profiles. Larger protein databases need source-specific redistribution review before bundling."
     },
     {
       "id": "technical-sequences",
@@ -44,7 +47,9 @@ export const referenceDataManifest = {
       "generatedFiles": [
         "src/reference-data/technical-sequences/sequences.json",
         "src/reference-data/technical-sequences/summary.json",
-        "src/reference-data/technical-sequences/provenance.json"
+        "src/reference-data/technical-sequences/summary.js",
+        "src/reference-data/technical-sequences/provenance.json",
+        "src/reference-data/technical-sequences/provenance.js"
       ],
       "validationTest": "test/reference-data-technical-sequences.test.js",
       "notes": "Curated common primers/adapters with provenance; full records are lazy-loaded by the worker-backed scanner."
@@ -63,7 +68,7 @@ export const referenceDataManifest = {
         "src/reference-data/restriction-enzymes/provenance.json"
       ],
       "validationTest": "test/reference-data-restriction-enzymes.test.js",
-      "notes": "Small curated common Type II enzyme seed set; full REBASE-style imports need source-specific build code and redistribution review."
+      "notes": "Curated common Type II enzyme set; full REBASE-style imports need source-specific build code and redistribution review."
     },
     {
       "id": "vector-contamination",
@@ -75,12 +80,45 @@ export const referenceDataManifest = {
       "sourceDirectory": "scripts/reference-data/sources/vector-contamination",
       "generatedFiles": [
         "src/reference-data/vector-contamination/summary.json",
+        "src/reference-data/vector-contamination/summary.js",
         "src/reference-data/vector-contamination/records.json",
         "src/reference-data/vector-contamination/index.json",
-        "src/reference-data/vector-contamination/provenance.json"
+        "src/reference-data/vector-contamination/provenance.json",
+        "src/reference-data/vector-contamination/provenance.js"
       ],
       "validationTest": "test/reference-data-vector-contamination.test.js",
       "notes": "Generated from NCBI UniVec_Core when source files are available; otherwise rebuilds index from checked-in normalized records."
+    },
+    {
+      "id": "plasmid-common-features",
+      "name": "Plasmid common feature seed references",
+      "fetchScript": null,
+      "buildScript": "reference-data:build:plasmid-common-features",
+      "requiresNetworkForFetch": false,
+      "offlineBuild": true,
+      "sourceDirectory": null,
+      "generatedFiles": [
+        "src/reference-data/plasmid-common-features/records.js"
+      ],
+      "validationTest": "test/plasmid-common-feature-scanner.test.js",
+      "notes": "Focused SMS3/Addgene-backed seed set for the Plasmid Common Feature Scanner; expand only after source-specific provenance and redistribution review."
+    },
+    {
+      "id": "text-stop-words",
+      "name": "Text stop-word references",
+      "fetchScript": null,
+      "buildScript": "reference-data:build:text-stop-words",
+      "requiresNetworkForFetch": false,
+      "offlineBuild": true,
+      "sourceDirectory": null,
+      "generatedFiles": [
+        "src/reference-data/text-stop-words/english.json",
+        "src/reference-data/text-stop-words/english.js",
+        "src/reference-data/text-stop-words/provenance.json",
+        "src/reference-data/text-stop-words/provenance.js"
+      ],
+      "validationTest": "test/reference-data-text-stop-words.test.js",
+      "notes": "Snowball-derived English stop-word seed used by Word Cloud; expand to other languages only through source-specific provenance and UI language selection."
     }
   ]
 };

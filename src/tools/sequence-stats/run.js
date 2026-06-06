@@ -22,17 +22,14 @@ function addStats(total, stats) {
   total.ambiguityCount += stats.ambiguityCount;
   total.nCount += stats.nCount;
   total.xCount += stats.xCount;
-  total.gapCount += stats.gapCount;
 
   for (const column of COUNT_COLUMNS) {
     total.counts[column] += stats.counts[column];
   }
-  total.counts.gaps += stats.counts.gaps;
 }
 
 function makeEmptyTotal() {
   const counts = Object.fromEntries(COUNT_COLUMNS.map((column) => [column, 0]));
-  counts.gaps = 0;
 
   return {
     length: 0,
@@ -41,8 +38,7 @@ function makeEmptyTotal() {
     unambiguousBases: 0,
     ambiguityCount: 0,
     nCount: 0,
-    xCount: 0,
-    gapCount: 0
+    xCount: 0
   };
 }
 
@@ -58,9 +54,8 @@ function makeReport(records) {
     lines.push(`Ambiguous symbols: ${record.stats.ambiguityCount}`);
     lines.push(`N count: ${record.stats.nCount}`);
     lines.push(`X count: ${record.stats.xCount}`);
-    lines.push(`Gap count: ${record.stats.gapCount}`);
     lines.push(
-      `Counts: ${COUNT_COLUMNS.map((column) => `${column}=${record.stats.counts[column]}`).join(", ")}, gaps=${record.stats.counts.gaps}`
+      `Counts: ${COUNT_COLUMNS.map((column) => `${column}=${record.stats.counts[column]}`).join(", ")}`
     );
     lines.push("");
   }
@@ -78,9 +73,7 @@ function makeTableRow(record) {
     ambiguous_symbols: record.stats.ambiguityCount,
     n_count: record.stats.nCount,
     x_count: record.stats.xCount,
-    gap_count: record.stats.gapCount,
-    ...Object.fromEntries(COUNT_COLUMNS.map((column) => [column, record.stats.counts[column]])),
-    gaps: record.stats.counts.gaps
+    ...Object.fromEntries(COUNT_COLUMNS.map((column) => [column, record.stats.counts[column]]))
   };
 }
 
@@ -102,9 +95,7 @@ function makeTsv(records) {
         record.stats.ambiguityCount,
         record.stats.nCount,
         record.stats.xCount,
-        record.stats.gapCount,
-        ...COUNT_COLUMNS.map((column) => record.stats.counts[column]),
-        record.stats.counts.gaps
+        ...COUNT_COLUMNS.map((column) => record.stats.counts[column])
       ].join("\t")
     );
   }
@@ -133,13 +124,13 @@ export function runSequenceStatsDnaRna(input, options = {}) {
   for (const record of records) {
     const cleaned = cleanDnaRnaSequence(record.sequence, {
       preserveCase: false,
-      keepGaps: options.keepGaps !== false
+      keepGaps: false
     });
     charactersRemoved += cleaned.removedCount;
 
     if (cleaned.removedCount > 0) {
       warnings.push(
-        `${record.title}: removed ${cleaned.removedCount} non-DNA/RNA character(s).`
+        `${record.title}: removed ${cleaned.removedCount} invalid or gap character(s).`
       );
     }
 
@@ -193,4 +184,13 @@ export function runSequenceStatsDnaRna(input, options = {}) {
       }
     }
   });
+}
+
+export async function runSequenceStatsDnaRnaWorker(input, options = {}, context = {}) {
+  context.reportProgress?.({ phase: "summarizing-sequences", progress: 0.1 });
+  context.throwIfCancelled?.();
+  await context.yieldIfNeeded?.();
+  const result = runSequenceStatsDnaRna(input, options);
+  context.reportProgress?.({ phase: "finished", progress: 1 });
+  return result;
 }

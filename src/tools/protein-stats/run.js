@@ -8,6 +8,7 @@ import {
 } from "../../core/sequence.js";
 import { makeTableStream, makeTextStream, makeToolResult } from "../../core/workflow.js";
 
+const SEQUENCE_STATS_PROTEIN_SCHEMA = "sequence-stats-protein";
 const COUNT_COLUMNS = [
   ...STANDARD_AMINO_ACIDS,
   ...AMBIGUOUS_AMINO_ACIDS,
@@ -20,24 +21,21 @@ const TSV_COLUMNS = [
   "ambiguous_residues",
   "uncommon_residues",
   "stop_count",
-  "gap_count",
   "molecular_weight_da",
   "average_residue_weight_da",
   "charge_ph",
   "net_charge",
   "isoelectric_point",
   ...COUNT_COLUMNS,
-  "stops",
-  "gaps"
+  "stops"
 ];
-export const proteinStatsTableColumns = [
+export const sequenceStatsProteinTableColumns = [
   { id: "title", label: "Title", type: "string" },
   { id: "length", label: "Length", type: "number" },
   { id: "standard_residues", label: "Standard residues", type: "number" },
   { id: "ambiguous_residues", label: "Ambiguous residues", type: "number" },
   { id: "uncommon_residues", label: "Uncommon residues", type: "number" },
   { id: "stop_count", label: "Stop count", type: "number" },
-  { id: "gap_count", label: "Gap count", type: "number" },
   { id: "molecular_weight_da", label: "Molecular weight (Da)", type: "number" },
   { id: "average_residue_weight_da", label: "Average residue weight (Da)", type: "number" },
   { id: "charge_ph", label: "Charge pH", type: "number" },
@@ -48,9 +46,9 @@ export const proteinStatsTableColumns = [
     label: column,
     type: "number"
   })),
-  { id: "stops", label: "Stops", type: "number" },
-  { id: "gaps", label: "Gaps", type: "number" }
+  { id: "stops", label: "Stops", type: "number" }
 ];
+export const proteinStatsTableColumns = sequenceStatsProteinTableColumns;
 
 function formatNumber(value, digits = 2) {
   return value === null ? "n/a" : value.toFixed(digits);
@@ -59,7 +57,6 @@ function formatNumber(value, digits = 2) {
 function makeEmptyTotal(chargePh) {
   const counts = Object.fromEntries(COUNT_COLUMNS.map((column) => [column, 0]));
   counts.stop = 0;
-  counts.gaps = 0;
 
   return {
     length: 0,
@@ -68,7 +65,6 @@ function makeEmptyTotal(chargePh) {
     ambiguousResidues: 0,
     uncommonResidues: 0,
     stopCount: 0,
-    gapCount: 0,
     molecularWeight: 0,
     averageResidueWeight: 0,
     chargePh,
@@ -83,14 +79,12 @@ function addStats(total, stats) {
   total.ambiguousResidues += stats.ambiguousResidues;
   total.uncommonResidues += stats.uncommonResidues;
   total.stopCount += stats.stopCount;
-  total.gapCount += stats.gapCount;
   total.molecularWeight += stats.molecularWeight;
 
   for (const column of COUNT_COLUMNS) {
     total.counts[column] += stats.counts[column];
   }
   total.counts.stop += stats.counts.stop;
-  total.counts.gaps += stats.counts.gaps;
 }
 
 function finalizeTotal(total) {
@@ -100,9 +94,7 @@ function finalizeTotal(total) {
   );
   stats.length = total.length;
   stats.stopCount = total.stopCount;
-  stats.gapCount = total.gapCount;
   stats.counts.stop = total.counts.stop;
-  stats.counts.gaps = total.counts.gaps;
   return stats;
 }
 
@@ -110,19 +102,18 @@ function makeReport(records) {
   const lines = [];
 
   for (const record of records) {
-    lines.push(`${record.title} protein stats`);
+    lines.push(`${record.title} stats`);
     lines.push(`Length: ${record.stats.length}`);
     lines.push(`Standard residues: ${record.stats.standardResidues}`);
     lines.push(`Ambiguous residues (B/J/X/Z): ${record.stats.ambiguousResidues}`);
     lines.push(`Uncommon residues (O/U): ${record.stats.uncommonResidues}`);
     lines.push(`Stop count: ${record.stats.stopCount}`);
-    lines.push(`Gap count: ${record.stats.gapCount}`);
     lines.push(`Molecular weight (Da): ${formatNumber(record.stats.molecularWeight, 2)}`);
     lines.push(`Average residue weight (Da): ${formatNumber(record.stats.averageResidueWeight, 2)}`);
     lines.push(`Net charge at pH ${formatNumber(record.stats.chargePh, 2)}: ${formatNumber(record.stats.charge, 3)}`);
     lines.push(`Estimated pI: ${formatNumber(record.stats.isoelectricPoint, 2)}`);
     lines.push(
-      `Counts: ${COUNT_COLUMNS.map((column) => `${column}=${record.stats.counts[column]}`).join(", ")}, stops=${record.stats.counts.stop}, gaps=${record.stats.counts.gaps}`
+      `Counts: ${COUNT_COLUMNS.map((column) => `${column}=${record.stats.counts[column]}`).join(", ")}, stops=${record.stats.counts.stop}`
     );
     lines.push(
       "Method: average peptide-residue masses plus H2O; EMBOSS Epk.dat pKa defaults with termini included."
@@ -142,15 +133,13 @@ function makeTableRow(record) {
     ambiguous_residues: record.stats.ambiguousResidues,
     uncommon_residues: record.stats.uncommonResidues,
     stop_count: record.stats.stopCount,
-    gap_count: record.stats.gapCount,
     molecular_weight_da: record.stats.molecularWeight,
     average_residue_weight_da: record.stats.averageResidueWeight,
     charge_ph: record.stats.chargePh,
     net_charge: record.stats.charge,
     isoelectric_point: record.stats.isoelectricPoint,
     ...Object.fromEntries(COUNT_COLUMNS.map((column) => [column, record.stats.counts[column]])),
-    stops: record.stats.counts.stop,
-    gaps: record.stats.counts.gaps
+    stops: record.stats.counts.stop
   };
 }
 
@@ -166,15 +155,13 @@ function makeTsv(records) {
         record.stats.ambiguousResidues,
         record.stats.uncommonResidues,
         record.stats.stopCount,
-        record.stats.gapCount,
         formatNumber(record.stats.molecularWeight, 2),
         formatNumber(record.stats.averageResidueWeight, 2),
         formatNumber(record.stats.chargePh, 2),
         formatNumber(record.stats.charge, 3),
         formatNumber(record.stats.isoelectricPoint, 2),
         ...COUNT_COLUMNS.map((column) => record.stats.counts[column]),
-        record.stats.counts.stop,
-        record.stats.counts.gaps
+        record.stats.counts.stop
       ].join("\t")
     );
   }
@@ -192,7 +179,7 @@ function normalizeChargePh(value) {
   return Math.min(14, Math.max(0, chargePh));
 }
 
-export function runProteinStats(input, options = {}) {
+export function runSequenceStatsProtein(input, options = {}) {
   const records = parseSequenceInput(input, "sequence");
   const warnings = [];
   const chargePh = normalizeChargePh(options.chargePh ?? 7);
@@ -214,12 +201,12 @@ export function runProteinStats(input, options = {}) {
   for (const record of records) {
     const cleaned = cleanProteinSequence(record.sequence, {
       preserveCase: false,
-      keepGaps: options.keepGaps !== false
+      keepGaps: false
     });
     charactersRemoved += cleaned.removedCount;
 
     if (cleaned.removedCount > 0) {
-      warnings.push(`${record.title}: removed ${cleaned.removedCount} non-protein character(s).`);
+      warnings.push(`${record.title}: removed ${cleaned.removedCount} invalid or gap character(s).`);
     }
 
     if (cleaned.sequence.length === 0) {
@@ -227,9 +214,9 @@ export function runProteinStats(input, options = {}) {
     }
 
     const stats = getProteinStats(cleaned.sequence, { chargePh });
-    if (stats.ambiguousResidues > 0 || stats.uncommonResidues > 0 || stats.stopCount > 0 || stats.gapCount > 0) {
+    if (stats.ambiguousResidues > 0 || stats.uncommonResidues > 0 || stats.stopCount > 0) {
       warnings.push(
-        `${record.title}: molecular weight, charge, and pI exclude ambiguous, uncommon, stop, and gap symbols.`
+        `${record.title}: molecular weight, charge, and pI exclude ambiguous, uncommon, and stop symbols.`
       );
     }
 
@@ -252,7 +239,7 @@ export function runProteinStats(input, options = {}) {
   return makeToolResult({
     output,
     download: {
-      filename: `protein-stats.${outputFormat === "tsv" ? "tsv" : "txt"}`,
+      filename: `sequence-stats-protein.${outputFormat === "tsv" ? "tsv" : "txt"}`,
       mimeType:
         outputFormat === "tsv"
           ? "text/tab-separated-values;charset=utf-8"
@@ -264,10 +251,10 @@ export function runProteinStats(input, options = {}) {
     charactersRemoved,
     streams: {
       report: makeTextStream(reportOutput, "text/plain"),
-      table: makeTableStream(proteinStatsTableColumns, tableRows, "protein-stats"),
+      table: makeTableStream(sequenceStatsProteinTableColumns, tableRows, SEQUENCE_STATS_PROTEIN_SCHEMA),
       statsRecords: {
         kind: "stats-records",
-        schema: "protein-stats",
+        schema: SEQUENCE_STATS_PROTEIN_SCHEMA,
         records: analyzedRecords.map((record) => ({
           title: record.title,
           stats: record.stats
@@ -275,4 +262,21 @@ export function runProteinStats(input, options = {}) {
       }
     }
   });
+}
+
+export function runProteinStats(input, options = {}) {
+  return runSequenceStatsProtein(input, options);
+}
+
+export async function runSequenceStatsProteinWorker(input, options = {}, context = {}) {
+  context.reportProgress?.({ phase: "summarizing-proteins", progress: 0.1 });
+  context.throwIfCancelled?.();
+  await context.yieldIfNeeded?.();
+  const result = runSequenceStatsProtein(input, options);
+  context.reportProgress?.({ phase: "finished", progress: 1 });
+  return result;
+}
+
+export async function runProteinStatsWorker(input, options = {}, context = {}) {
+  return runSequenceStatsProteinWorker(input, options, context);
 }

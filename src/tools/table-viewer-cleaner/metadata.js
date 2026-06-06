@@ -3,11 +3,14 @@ const TABLE_COLUMNS = [];
 export const tableViewerCleanerMetadata = {
   id: "table-viewer-cleaner",
   name: "Table Viewer / Cleaner",
-  category: "Analyze Tables",
-  tags: ["table", "CSV", "TSV", "cleaning", "workflow"],
-  summary: "Parse CSV/TSV-style text, clean headers, filter/sort/select rows, remove duplicates, and export a structured table.",
-  inputType: "CSV/TSV table",
+  category: "Tables",
+  tags: ["table", "CSV", "TSV", "Excel", "cleaning"],
+  summary: "Parse CSV/TSV-style text, clean cells and headers, filter rows and columns, sort rows, and export a structured table.",
+  inputType: "CSV, TSV, or Excel table",
   outputType: "Cleaned table, report",
+  layout: {
+    options: "wide"
+  },
   workflow: {
     inputs: [
       { id: "input", kind: "text", mediaType: "text/plain" },
@@ -45,53 +48,59 @@ export const tableViewerCleanerMetadata = {
     },
     {
       type: "group",
-      label: "Columns",
-      help: "Column actions happen before filtering, sorting, duplicate removal, and export.",
+      label: "Clean cells",
+      help: "Lightweight cleanup applied to every cell before filters, sorting, and export.",
       options: [
         {
-          id: "columnAction",
-          type: "select",
-          label: "Column action",
-          help: "Use all columns, keep only the columns named below, or remove the columns named below.",
-          defaultValue: "all",
-          choices: [
-            { value: "all", label: "Use all columns" },
-            { value: "keep", label: "Keep only listed columns" },
-            { value: "remove", label: "Remove listed columns" }
-          ]
+          id: "trimWhitespace",
+          type: "checkbox",
+          label: "Trim leading and trailing spaces",
+          defaultValue: true,
+          help: "Removes spaces around cell values. This is usually safe for pasted spreadsheet or delimited data."
         },
         {
-          id: "columnList",
-          type: "text",
-          label: "Column list",
-          help: "Enter visible column names or normalized ids separated by commas, for example sample, gc_percent.",
-          defaultValue: ""
+          id: "collapseWhitespace",
+          type: "checkbox",
+          label: "Collapse repeated whitespace inside cells",
+          defaultValue: false,
+          help: "Converts runs of spaces, tabs, or line breaks inside a cell to a single space."
         },
-        { id: "removeDuplicates", type: "checkbox", label: "Remove duplicate rows after column action and filtering", defaultValue: false, help: "Duplicate rows are compared after column selection and filtering, so removed columns do not affect duplicate detection." }
+        {
+          id: "standardizeMissing",
+          type: "checkbox",
+          label: "Convert missing-value markers to blanks",
+          defaultValue: false,
+          help: "When enabled, values listed below are converted to empty cells before filtering and export."
+        },
+        {
+          id: "missingValues",
+          type: "text",
+          label: "Missing-value markers",
+          defaultValue: "NA,N/A,null,NULL,.",
+          help: "Comma-separated markers to treat as missing when missing-value standardization is enabled."
+        }
       ]
     },
     {
       type: "group",
       label: "Filter rows",
-      help: "Filtering is applied after column selection and before sorting.",
+      help: "Row filtering is applied after cleanup and before sorting, column filtering, and empty row/column cleanup.",
       options: [
         {
-          id: "filterColumn",
-          type: "text",
-          label: "Column",
-          help: "Column name or normalized id to test. Leave blank with No filter.",
-          defaultValue: ""
-        },
-        {
-          id: "filterOperator",
-          type: "select",
-          label: "Rule",
-          help: "Text rules compare strings. Numeric rules convert cell values and the filter value to numbers.",
-          defaultValue: "none",
-          choices: [
-            { value: "none", label: "No filter" },
+          id: "filterRules",
+          type: "rule-list",
+          ruleKind: "filter",
+          label: "Filters",
+          addLabel: "+ Filter",
+          defaultValue: "",
+          defaultRule: "contains",
+          columnSuggestionsFrom: "table-columns",
+          help: "Add one or more AND filters. Text rules compare strings; numeric rules convert cell values and the filter value to numbers.",
+          ruleChoices: [
             { value: "contains", label: "Contains text" },
+            { value: "not_contains", label: "Does not contain text" },
             { value: "equals", label: "Equals text" },
+            { value: "not_equals", label: "Does not equal text" },
             { value: "not_empty", label: "Is not empty" },
             { value: "empty", label: "Is empty" },
             { value: "gt", label: "Greater than" },
@@ -99,39 +108,87 @@ export const tableViewerCleanerMetadata = {
             { value: "lt", label: "Less than" },
             { value: "lte", label: "Less than or equal" }
           ]
-        },
-        {
-          id: "filterValue",
-          type: "text",
-          label: "Value",
-          help: "Comparison value for the selected filter rule. Empty and not-empty rules ignore this field.",
-          defaultValue: ""
         }
       ]
     },
     {
       type: "group",
       label: "Sort rows",
-      help: "Sorting is applied after filtering and duplicate removal.",
+      help: "Sorting is applied after row filtering. Earlier sort keys take priority over later keys.",
       options: [
         {
-          id: "sortColumn",
-          type: "text",
-          label: "Column",
-          help: "Column name or normalized id to sort by.",
-          defaultValue: ""
-        },
-        {
-          id: "sortDirection",
-          type: "select",
-          label: "Direction",
-          help: "Ascending puts smaller numbers or earlier text first; descending reverses that order.",
-          defaultValue: "none",
-          choices: [
-            { value: "none", label: "No sort" },
+          id: "sortRules",
+          type: "rule-list",
+          ruleKind: "sort",
+          label: "Sort keys",
+          addLabel: "+ Sort key",
+          defaultValue: "",
+          defaultRule: "asc",
+          columnSuggestionsFrom: "table-columns",
+          help: "Add one or more sort keys. Earlier keys take priority over later keys.",
+          ruleChoices: [
             { value: "asc", label: "Ascending" },
             { value: "desc", label: "Descending" }
           ]
+        }
+      ]
+    },
+    {
+      type: "group",
+      label: "Filter columns",
+      help: "Column filters are applied after row filtering and sorting, before empty row/column cleanup. They affect which columns are included in the final output.",
+      options: [
+        {
+          id: "columnFilterAction",
+          type: "select",
+          label: "Column filter action",
+          help: "Keep or remove columns whose names or normalized ids match all column filter rules.",
+          defaultValue: "keep",
+          choices: [
+            { value: "keep", label: "Keep matching columns" },
+            { value: "remove", label: "Remove matching columns" },
+            { value: "all", label: "Use all columns" }
+          ]
+        },
+        {
+          id: "columnFilterRules",
+          type: "rule-list",
+          ruleKind: "column-filter",
+          label: "Column filters",
+          valueLabel: "Column name or id",
+          addLabel: "+ Column filter",
+          defaultValue: "",
+          defaultRule: "contains",
+          help: "Add one or more AND filters against column names or normalized ids. Leave this empty to keep all columns.",
+          ruleChoices: [
+            { value: "contains", label: "Contains text" },
+            { value: "not_contains", label: "Does not contain text" },
+            { value: "equals", label: "Equals text" },
+            { value: "not_equals", label: "Does not equal text" },
+            { value: "starts_with", label: "Starts with text" },
+            { value: "ends_with", label: "Ends with text" }
+          ]
+        }
+      ]
+    },
+    {
+      type: "group",
+      label: "Remove empty rows / columns",
+      help: "These cleanup steps run after row filtering, sorting, and column filtering so filtered output does not keep newly empty rows or columns.",
+      options: [
+        {
+          id: "removeEmptyRows",
+          type: "checkbox",
+          label: "Remove empty rows",
+          defaultValue: true,
+          help: "Drops rows where every remaining cell is blank after cleanup, row filtering, and column filtering."
+        },
+        {
+          id: "removeEmptyColumns",
+          type: "checkbox",
+          label: "Remove empty columns",
+          defaultValue: false,
+          help: "Drops columns where every remaining row is blank after cleanup, row filtering, and column filtering. This is ignored if it would remove every column."
         }
       ]
     },
@@ -145,8 +202,8 @@ export const tableViewerCleanerMetadata = {
           label: "Format",
           defaultValue: "tsv",
           choices: [
-            { value: "tsv", label: "TSV table" },
-            { value: "csv", label: "CSV table" },
+            { value: "tsv", label: "Table" },
+            { value: "csv", label: "CSV output" },
             { value: "report", label: "Summary report" }
           ]
         }
@@ -155,7 +212,12 @@ export const tableViewerCleanerMetadata = {
     {
       id: "columnNote",
       type: "note",
-      text: "Column names can be entered as visible labels or normalized ids. Use commas for multiple columns, for example: sample, gc_percent."
+      text: "Column filters compare both visible column names and normalized ids, for example: sample or gc_percent."
+    },
+    {
+      id: "ruleNote",
+      type: "note",
+      text: "Cleanup runs first, then row filters, row sorting, column filtering, and empty row/column removal for export."
     }
   ]
 };

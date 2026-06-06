@@ -11,9 +11,7 @@ export const sequenceStatsTsvColumns = [
   "ambiguous_symbols",
   "n_count",
   "x_count",
-  "gap_count",
-  ...countColumns,
-  "gaps"
+  ...countColumns
 ];
 
 export const sequenceStatsTableColumns = [
@@ -25,11 +23,9 @@ export const sequenceStatsTableColumns = [
   { id: "ambiguous_symbols", label: "Ambiguous symbols", type: "number" },
   { id: "n_count", label: "N count", type: "number" },
   { id: "x_count", label: "X count", type: "number" },
-  { id: "gap_count", label: "Gap count", type: "number" },
   ...countColumns.map((column) => ({
     id: column,
     label: column,
     type: "number"
-  })),
-  { id: "gaps", label: "Gaps", type: "number" }
+  }))
 ];

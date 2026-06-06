@@ -1,13 +1,15 @@
 import { fastaLengthFilterTableColumns } from "../../core/fasta-length-filter.js";
+import { WHOLE_FASTA_SCAN_NOTE } from "../fasta-input-policy.js";
+import { makeFastaSourceInputOptions } from "../fasta-source-options.js";
 
 export const fastaLengthFilterMetadata = {
   id: "fasta-length-filter",
   name: "FASTA Filter / Select",
-  category: "Prepare Sequences",
-  tags: ["DNA", "RNA", "protein", "FASTA", "workflow"],
-  summary: "Keep or remove FASTA records by length, title text, sequence text, GC percent, or ambiguous-character count.",
+  category: "FASTA",
+  tags: ["DNA", "RNA", "protein", "FASTA"],
+  summary: "Select FASTA records by length, title text, sequence text, GC percent, or ambiguous-character count, then optionally sort, trim terminal poly-A/T tails, or join selected records.",
   inputType: "FASTA records",
-  outputType: "Filtered FASTA, removed FASTA, report, table",
+  outputType: "Selected FASTA, non-selected FASTA, report, table",
   workflow: {
     inputs: [
       { id: "input", kind: "text", mediaType: "text/plain" },
@@ -27,6 +29,7 @@ export const fastaLengthFilterMetadata = {
   workerModule: "../tools/fasta-length-filter/run.js",
   workerExport: "runFastaLengthFilter",
   options: [
+    ...makeFastaSourceInputOptions(),
     {
       id: "minLength",
       type: "number",
@@ -80,22 +83,69 @@ export const fastaLengthFilterMetadata = {
       help: "Optional criterion counting characters outside A/C/G/T/U."
     },
     {
-      id: "keepMode",
+      id: "selectionAction",
       type: "radio",
-      label: "Filter mode",
-      defaultValue: "inside",
+      label: "Action for matching records",
+      defaultValue: "keep",
+      help: "The selected FASTA output contains the records produced by this action. The non-selected FASTA output is available separately for audit or recovery.",
       choices: [
-        { value: "inside", label: "Keep matching records" },
-        { value: "outside", label: "Remove matching records" }
+        { value: "keep", label: "Keep matching records" },
+        { value: "remove", label: "Remove matching records" }
       ]
     },
     {
-      id: "lineWidth",
-      type: "number",
-      label: "Characters per FASTA line",
-      defaultValue: 60,
-      min: 10,
-      max: 200
+      id: "sortMode",
+      type: "select",
+      label: "Sort selected records",
+      defaultValue: "input",
+      choices: [
+        { value: "input", label: "Keep input order" },
+        { value: "length-asc", label: "Length, shortest first" },
+        { value: "length-desc", label: "Length, longest first" },
+        { value: "title-asc", label: "Title, A to Z" },
+        { value: "title-desc", label: "Title, Z to A" },
+        { value: "gc-asc", label: "GC %, low to high" },
+        { value: "gc-desc", label: "GC %, high to low" },
+        { value: "ambiguous-asc", label: "Ambiguous count, low to high" },
+        { value: "ambiguous-desc", label: "Ambiguous count, high to low" }
+      ]
+    },
+    {
+      type: "group",
+      label: "Selected-record cleanup",
+      options: [
+        {
+          id: "trimTerminalPolyAt",
+          type: "checkbox",
+          label: "Trim terminal poly-A/T tails",
+          defaultValue: false,
+          help: "Removes only long terminal A runs at the 3' end and T/U runs at the 5' end of selected records."
+        },
+        {
+          id: "polyAtMinLength",
+          type: "number",
+          label: "Minimum A/T run",
+          defaultValue: 10,
+          min: 1,
+          max: 1000,
+          step: 1,
+          visibleWhen: { option: "trimTerminalPolyAt", value: true }
+        },
+        {
+          id: "joinSelectedRecords",
+          type: "checkbox",
+          label: "Join selected records into one FASTA record",
+          defaultValue: false,
+          help: "Concatenates the selected records after filtering, sorting, and optional tail trimming. Useful for aggregate CDS/codon-use summaries."
+        },
+        {
+          id: "joinedTitle",
+          type: "text",
+          label: "Joined FASTA title",
+          defaultValue: "joined_selected_records",
+          visibleWhen: { option: "joinSelectedRecords", value: true }
+        }
+      ]
     },
     {
       type: "group",
@@ -107,13 +157,18 @@ export const fastaLengthFilterMetadata = {
           label: "Format",
           defaultValue: "filtered-fasta",
           choices: [
-            { value: "filtered-fasta", label: "Filtered FASTA" },
-            { value: "removed-fasta", label: "Removed FASTA" },
+            { value: "filtered-fasta", label: "Selected records FASTA" },
+            { value: "removed-fasta", label: "Non-selected records FASTA" },
             { value: "report", label: "Summary report" },
             { value: "tsv", label: "Decision table" }
           ]
         }
       ]
+    },
+    {
+      id: "compressedInputNote",
+      type: "note",
+      text: WHOLE_FASTA_SCAN_NOTE
     }
   ]
 };

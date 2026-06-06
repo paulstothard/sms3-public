@@ -3,8 +3,8 @@ import { proteinHydropathyTableColumns } from "./run.js";
 export const proteinHydropathyMetadata = {
   id: "protein-hydropathy",
   name: "Protein Hydropathy",
-  category: "Analyze Protein",
-  tags: ["protein", "hydropathy", "GRAVY", "Kyte-Doolittle", "plot"],
+  category: "Sequence Analysis",
+  tags: ["protein", "raw", "hydropathy", "plot"],
   summary:
     "Calculate Kyte-Doolittle GRAVY and sliding-window hydropathy profiles for protein sequences.",
   inputType: "Protein sequence",
@@ -26,12 +26,12 @@ export const proteinHydropathyMetadata = {
     ]
   },
   options: [
-    { id: "keepGaps", type: "checkbox", label: "Keep gap characters (. and -)", defaultValue: true },
     {
       id: "windowSize",
       type: "number",
       label: "Window size",
-      defaultValue: 9,
+      help: "Residues per sliding window. The default of 19 is useful for broad hydrophobic or transmembrane-scale regions; smaller windows show more local variation.",
+      defaultValue: 19,
       min: 1,
       max: 1001,
       step: 1
@@ -43,8 +43,8 @@ export const proteinHydropathyMetadata = {
       defaultValue: "svg-plot",
       choices: [
         { value: "report", label: "Summary report" },
-        { value: "tsv", label: "TSV table" },
-        { value: "svg-plot", label: "SVG hydropathy plot" }
+        { value: "tsv", label: "Table" },
+        { value: "svg-plot", label: "Protein hydropathy plot" }
       ]
     },
     {

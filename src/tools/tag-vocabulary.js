@@ -4,23 +4,30 @@ export const toolTagVocabulary = [
   "protein",
   "table",
   "text",
+  "raw",
   "FASTA",
+  "FASTQ",
+  "SAM",
+  "BAM",
+  "BED",
+  "GFF",
+  "GTF",
+  "VCF",
   "CSV",
   "TSV",
+  "Excel",
   "GenBank",
+  "GenPept",
   "EMBL",
   "DDBJ",
   "UniProt",
-  "IUPAC",
   "GC",
   "ORF",
-  "GRAVY",
-  "Kyte-Doolittle",
-  "pI",
   "adapter",
   "alignment",
+  "phylogeny",
+  "assembly",
   "annotation",
-  "charge",
   "cleaning",
   "codon",
   "composition",
@@ -32,9 +39,8 @@ export const toolTagVocabulary = [
   "genetic code",
   "hydropathy",
   "map",
-  "mass",
   "motif",
-  "pattern",
+  "plasmid",
   "plot",
   "primer",
   "reference data",
@@ -45,15 +51,14 @@ export const toolTagVocabulary = [
   "technical sequence",
   "translation",
   "validation",
-  "vector",
-  "workflow"
+  "vector"
 ];
 
 export const toolTagVocabularySet = new Set(toolTagVocabulary);
 
 const toolTagOrderGroups = [
   ["DNA", "RNA", "protein", "table", "text"],
-  ["FASTA", "CSV", "TSV", "GenBank", "EMBL", "DDBJ", "UniProt", "IUPAC"],
+  ["raw", "FASTA", "FASTQ", "SAM", "BAM", "BED", "GFF", "GTF", "VCF", "CSV", "TSV", "Excel", "GenBank", "GenPept", "EMBL", "DDBJ", "UniProt"],
   [
     "GC",
     "composition",
@@ -63,6 +68,8 @@ const toolTagOrderGroups = [
     "vector",
     "adapter",
     "alignment",
+    "phylogeny",
+    "assembly",
     "primer",
     "contamination",
     "restriction",
@@ -70,18 +77,13 @@ const toolTagOrderGroups = [
     "digest",
     "motif",
     "annotation",
+    "plasmid",
     "codon",
     "hydropathy",
-    "GRAVY",
-    "Kyte-Doolittle",
-    "mass",
-    "charge",
-    "pI",
-    "pattern",
     "validation"
   ],
   ["cleaning", "coordinates", "format conversion", "map", "plot", "regex", "search", "statistics", "translation"],
-  ["workflow", "reference data"]
+  ["reference data"]
 ];
 
 const toolTagOrderRank = new Map(

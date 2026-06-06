@@ -46,24 +46,37 @@
 
       <main class="workspace">
         <aside class="tool-nav" aria-label="Tool navigation">
-          <label class="search-label" for="toolSearch">Find a tool</label>
-          <input id="toolSearch" class="search-input" type="search" placeholder="Search tools" />
-          <div id="toolList" class="tool-list"></div>
+          <button
+            id="sidebarResize"
+            class="sidebar-resize"
+            type="button"
+            aria-label="Resize tool navigation"
+            title="Resize tool navigation"
+          ></button>
+          <div class="tool-nav-scroll">
+            <label class="search-label" for="toolSearch">Find a tool</label>
+            <input id="toolSearch" class="search-input" type="search" placeholder="Search tools" />
 
-          <section class="reference-panel" aria-labelledby="workflowNavTitle">
-            <h2 id="workflowNavTitle">Workflows</h2>
-            <button id="workflowLink" class="reference-link" type="button">Workflow Builder</button>
-          </section>
+            <section class="reference-panel" aria-label="Workflows">
+              <button id="workflowLink" class="reference-link" type="button">Workflows</button>
+            </section>
 
-          <section class="reference-panel" aria-labelledby="referenceTitle">
-            <h2 id="referenceTitle">Reference</h2>
-            <div id="referenceList" class="reference-list"></div>
-          </section>
+            <section class="reference-panel" aria-label="Workspace">
+              <button id="workspaceLink" class="reference-link" type="button">Workspace</button>
+            </section>
 
-          <section class="reference-panel" aria-labelledby="supportTitle">
-            <h2 id="supportTitle">Support</h2>
-            <button id="feedbackLink" class="reference-link" type="button">Feedback</button>
-          </section>
+            <div id="toolList" class="tool-list"></div>
+
+            <section class="reference-panel" aria-labelledby="referenceTitle">
+              <h2 id="referenceTitle">Reference</h2>
+              <div id="referenceList" class="reference-list"></div>
+            </section>
+
+            <section class="reference-panel" aria-labelledby="supportTitle">
+              <h2 id="supportTitle">Support</h2>
+              <button id="feedbackLink" class="reference-link" type="button">Feedback</button>
+            </section>
+          </div>
         </aside>
 
         <section class="tool-panel">
@@ -73,7 +86,10 @@
                 <p id="toolCategory" class="eyebrow"></p>
                 <h2 id="toolTitle"></h2>
               </div>
-              <div id="toolTags" class="tags"></div>
+              <div class="tool-heading-actions">
+                <div id="toolTags" class="tags"></div>
+                <a id="toolFeedbackLink" class="tool-feedback-link" href="mailto:paul.stothard@gmail.com">Send tool feedback</a>
+              </div>
             </div>
 
             <p id="toolSummary" class="summary"></p>
@@ -84,7 +100,7 @@
                   <h3 id="inputTitle">Input</h3>
                   <div class="button-row">
                     <label class="file-button">
-                      <input id="fileInput" type="file" accept=".fa,.fasta,.fna,.ffn,.txt,.gb,.gbk,.genbank,.embl,.seq" />
+                      <input id="fileInput" type="file" accept=".fa,.fasta,.fna,.ffn,.txt,.gb,.gbk,.genbank,.embl,.seq,.pdb,.cif,.mmcif" />
                       <span>Choose file</span>
                     </label>
                     <button id="loadExample" type="button">Load example</button>
@@ -92,19 +108,40 @@
                   </div>
                 </div>
                 <div id="dropZone" class="drop-zone">
-                  <span id="dropZoneLabel">Drop a file here</span>
+                  <span id="dropZoneLabel">Drop supported input here</span>
+                </div>
+                <div id="inputFileStatus" class="input-file-status" hidden></div>
+                <div id="markdownInputTools" class="markdown-input-tools" hidden>
+                  <label class="markdown-input-filename">
+                    Download name
+                    <input id="markdownInputFileName" type="text" value="sms3-lab-notebook.md" />
+                  </label>
+                  <button id="markdownInsertTemplate" type="button">Insert template</button>
+                  <button id="markdownSaveDraft" type="button">Save draft</button>
+                  <button id="markdownLoadDraft" type="button">Load draft</button>
+                  <button id="markdownCopyInput" type="button">Copy Markdown</button>
+                  <button id="markdownDownloadInput" type="button">Download .md</button>
+                  <span id="markdownInputStatus" class="markdown-input-status">Choose a Markdown file, use the selected template, or load a saved draft. Click Run to open the editor.</span>
                 </div>
                 <textarea id="sequenceInput" spellcheck="false" wrap="off"></textarea>
                 <div id="splitInputPanel" class="split-input-panel" hidden></div>
               </section>
 
-            <section class="options-panel" aria-labelledby="optionsTitle">
-              <div class="panel-heading">
-                <h3 id="optionsTitle">Options</h3>
-                <div class="button-row">
-                  <button id="restoreDefaults" type="button">Restore defaults</button>
+              <button
+                id="editorResize"
+                class="editor-resize"
+                type="button"
+                aria-label="Resize input and options panels"
+                title="Resize input and options panels"
+              ></button>
+
+              <section class="options-panel" aria-labelledby="optionsTitle">
+                <div class="panel-heading">
+                  <h3 id="optionsTitle">Options</h3>
+                  <div class="button-row">
+                    <button id="restoreDefaults" type="button">Restore defaults</button>
+                  </div>
                 </div>
-              </div>
                 <div id="toolOptions" class="tool-options"></div>
                 <div class="run-button-row">
                   <button id="runTool" class="primary-button" type="button">Run</button>
@@ -113,18 +150,11 @@
               </section>
             </div>
 
+            <section id="markdownWorkspace" class="markdown-workspace" aria-label="Markdown notebook workspace" hidden></section>
+
             <section class="result-panel" aria-labelledby="resultTitle">
               <div class="panel-heading">
                 <h3 id="resultTitle">Output</h3>
-              </div>
-              <div class="output-search-row" aria-label="Search output">
-                <label>
-                  Find
-                  <input id="outputSearch" type="search" placeholder="Search output" />
-                </label>
-                <button id="outputSearchPrevious" type="button" aria-label="Previous output match">Previous</button>
-                <button id="outputSearchNext" type="button" aria-label="Next output match">Next</button>
-                <span id="outputSearchCount" class="output-search-count">No search</span>
               </div>
               <div id="messages" class="messages" aria-live="polite"></div>
               <div id="outputViewTabs" class="output-format-row" hidden>
@@ -134,12 +164,23 @@
                 </label>
                 <div id="toolOutputActions" class="output-action-row" hidden>
                   <button id="downloadOutput" type="button">Download text</button>
+                  <button id="downloadPngOutput" type="button" hidden>Download PNG</button>
                   <button id="copyOutput" type="button">Copy text</button>
                 </div>
               </div>
+              <div id="outputSearchRow" class="output-search-row" aria-label="Search output" hidden>
+                <label>
+                  Find
+                  <input id="outputSearch" type="search" placeholder="Search output" />
+                </label>
+                <button id="outputSearchPrevious" type="button" aria-label="Previous output match">Previous</button>
+                <button id="outputSearchNext" type="button" aria-label="Next output match">Next</button>
+                <span id="outputSearchCount" class="output-search-count">No search</span>
+              </div>
               <div class="output-viewer">
+                <div id="toolOutputEmpty" class="output-empty-state">Run this tool to generate the selected output.</div>
                 <pre id="toolOutputHighlight" class="output-highlight-preview" hidden></pre>
-                <textarea id="toolOutput" readonly spellcheck="false" wrap="off"></textarea>
+                <textarea id="toolOutput" readonly spellcheck="false" wrap="off" hidden></textarea>
                 <div id="toolTableOutput" class="table-output" hidden></div>
               </div>
               <div id="visualOutput" class="visual-output" hidden></div>
@@ -171,16 +212,38 @@
             </div>
           </section>
 
+          <section id="workspaceView" class="reference-content" aria-labelledby="workspaceTitle" hidden>
+            <div class="panel-heading">
+              <div>
+                <p class="eyebrow">Local Project</p>
+                <div class="page-title-row">
+                  <h2 id="workspaceTitle">Workspace</h2>
+                  <span class="option-help page-help" tabindex="0" role="button" aria-label="Workspace help">?</span>
+                  <span class="option-help-popover" role="tooltip">
+                    Workspace stores local project records and attached analysis layers so compatible tools and workflows can reuse them. Tools still generate the final viewers, maps, tables, reports, and exports.
+                  </span>
+                </div>
+              </div>
+            </div>
+            <div id="workspaceBody" class="workspace-body"></div>
+          </section>
+
           <section id="workflowView" class="reference-content" aria-labelledby="workflowTitle" hidden>
             <div class="panel-heading">
               <div>
-                <p class="eyebrow">Workflow</p>
-                <h2 id="workflowTitle">Workflow Builder</h2>
+                <p class="eyebrow">Workflows</p>
+                <div class="page-title-row">
+                  <h2 id="workflowTitle">Workflows</h2>
+                  <span class="option-help page-help" tabindex="0" role="button" aria-label="Workflows help">?</span>
+                  <span class="option-help-popover" role="tooltip">
+                    Workflows are curated local recipes that run SMS3 tools and typed operations in sequence. Use them for repeatable multi-step analysis without wiring every step by hand.
+                  </span>
+                </div>
               </div>
             </div>
             <div class="workflow-body">
               <p class="summary">
-                Build a local browser workflow from SMS3 tools and typed operations, then inspect the result produced at each step.
+                Run curated local recipes that chain SMS3 tools, workspace records, and typed operations into useful repeatable analyses.
               </p>
 
               <section class="options-panel workflow-steps-panel" aria-labelledby="workflowStepsTitle">
@@ -194,11 +257,29 @@
                   </label>
                 </div>
                 <div id="workflowSummary" class="workflow-summary"></div>
+                <div class="workflow-save-panel" aria-label="Saved workflows">
+                  <div class="workflow-save-grid">
+                    <label class="text-row">
+                      Workflow name
+                      <input id="workflowSaveName" type="text" autocomplete="off" placeholder="Name this workflow" />
+                    </label>
+                    <button id="workflowSaveCurrent" type="button">Save workflow</button>
+                    <label class="select-row">
+                      Saved workflows
+                      <select id="workflowSavedSelect"></select>
+                    </label>
+                    <div class="button-row workflow-saved-actions">
+                      <button id="workflowLoadSaved" type="button">Load saved</button>
+                      <button id="workflowDeleteSaved" type="button">Delete saved</button>
+                    </div>
+                  </div>
+                  <p id="workflowSavedStatus" class="summary workflow-saved-status"></p>
+                </div>
                 <div class="workflow-add-region">
-                  <button id="workflowOpenAddStep" class="workflow-add-button" type="button" aria-controls="workflowAddStepDraft" aria-expanded="false">Add step</button>
+                  <button id="workflowOpenAddStep" class="workflow-add-button" type="button" aria-controls="workflowAddStepDraft" aria-expanded="false">Add workflow step</button>
                   <div id="workflowAddStepDraft" class="workflow-add-draft" hidden>
                     <div class="workflow-add-draft-heading">
-                      <h4>New step</h4>
+                      <h4>Add workflow step</h4>
                       <button id="workflowCancelAddStep" type="button">Cancel</button>
                     </div>
                     <div class="workflow-builder-grid">
@@ -206,12 +287,13 @@
                         Step type
                         <select id="workflowAddStepType">
                           <option value="tool">Run a tool</option>
-                          <option value="select-stream">Choose a different result</option>
-                          <option value="split">Split FASTA records</option>
+                          <option value="select-stream">Choose output to pass on</option>
+                          <option value="split">Split records</option>
                           <option value="filter">Filter rows or records</option>
                           <option value="sort">Sort rows or records</option>
-                          <option value="gather">Gather mapped results</option>
-                          <option value="map">Run tool on each record</option>
+                          <option value="take">Keep top rows or records</option>
+                          <option value="gather">Gather results</option>
+                          <option value="map">Run a tool for each record</option>
                         </select>
                       </label>
                       <label id="workflowAddToolRow" class="select-row">
@@ -219,7 +301,7 @@
                         <select id="workflowAddTool"></select>
                       </label>
                       <label id="workflowAddStreamRow" class="select-row">
-                        Result
+                        Output to keep
                         <select id="workflowAddStream"></select>
                       </label>
                       <label id="workflowAddFilterFieldRow" class="number-row">
@@ -254,6 +336,10 @@
                           <option value="desc">Descending</option>
                         </select>
                       </label>
+                      <label id="workflowAddTakeCountRow" class="number-row">
+                        Count
+                        <input id="workflowAddTakeCount" type="number" min="0" step="1" value="10" />
+                      </label>
                       <label id="workflowAddGatherRow" class="select-row">
                         Gather as
                         <select id="workflowAddGatherAs">
@@ -266,7 +352,7 @@
                     </div>
                     <div id="workflowBuilderGuidance" class="workflow-builder-guidance"></div>
                     <div class="button-row">
-                      <button id="workflowAppendStep" class="primary-button" type="button">Add selected step</button>
+                      <button id="workflowAppendStep" class="primary-button" type="button">Add to recipe</button>
                     </div>
                   </div>
                 </div>
@@ -295,15 +381,6 @@
                     <p id="workflowOutputSummary" class="summary"></p>
                   </div>
                 </div>
-                <div class="output-search-row" aria-label="Search output">
-                  <label>
-                    Find
-                    <input id="workflowOutputSearch" type="search" placeholder="Search output" />
-                  </label>
-                  <button id="workflowOutputSearchPrevious" type="button" aria-label="Previous workflow output match">Previous</button>
-                  <button id="workflowOutputSearchNext" type="button" aria-label="Next workflow output match">Next</button>
-                  <span id="workflowOutputSearchCount" class="output-search-count">No search</span>
-                </div>
                 <div id="workflowMessages" class="messages" aria-live="polite"></div>
                 <div id="workflowStepInspector" class="workflow-step-inspector"></div>
                 <div id="workflowOutputViewTabs" class="output-format-row" hidden>
@@ -314,6 +391,15 @@
                     <button id="workflowCopyOutput" type="button">Copy text</button>
                   </div>
                 </div>
+                <div id="workflowOutputSearchRow" class="output-search-row" aria-label="Search workflow output" hidden>
+                  <label>
+                    Find
+                    <input id="workflowOutputSearch" type="search" placeholder="Search output" />
+                  </label>
+                  <button id="workflowOutputSearchPrevious" type="button" aria-label="Previous workflow output match">Previous</button>
+                  <button id="workflowOutputSearchNext" type="button" aria-label="Next workflow output match">Next</button>
+                  <span id="workflowOutputSearchCount" class="output-search-count">No search</span>
+                </div>
                 <div class="output-viewer">
                   <pre id="workflowOutputHighlight" class="output-highlight-preview" hidden></pre>
                   <textarea id="workflowOutput" readonly spellcheck="false" wrap="off"></textarea>
@@ -322,15 +408,15 @@
                 <div id="workflowVisualOutput" class="visual-output" hidden></div>
               </section>
 
-              <details class="result-panel workflow-json-panel">
-                <summary id="workflowJsonTitle">Advanced JSON</summary>
-                <p class="summary">Export a preset, edit JSON, or import a saved workflow.</p>
+              <details id="workflowJsonPanel" class="result-panel workflow-json-panel">
+                <summary id="workflowJsonTitle">Import / export workflow</summary>
+                <p class="summary">Optional workflow definition editor for moving recipes between SMS3 copies or automation code. The normal workflow controls above do not require this.</p>
                 <div class="button-row">
-                  <button id="workflowExportJson" type="button">Export preset JSON</button>
-                  <button id="workflowImportJson" type="button">Use JSON</button>
-                  <button id="workflowValidateJson" type="button">Validate JSON</button>
+                  <button id="workflowExportJson" type="button">Copy recipe to editor</button>
+                  <button id="workflowImportJson" type="button">Use edited workflow</button>
+                  <button id="workflowValidateJson" type="button">Check workflow</button>
                 </div>
-                <textarea id="workflowJson" spellcheck="false" wrap="off"></textarea>
+                <textarea id="workflowJson" aria-label="Workflow definition JSON" spellcheck="false" wrap="off"></textarea>
               </details>
             </div>
           </section>
@@ -338,6 +424,10 @@
       </main>
     </div>
 
+    <script src="./src/vendor/d3/d3.min.js"></script>
+    <script src="./src/vendor/observablehq-plot/plot.umd.min.js"></script>
+    <script src="./src/vendor/exceljs/exceljs.min.js"></script>
+    <script src="./src/vendor/3dmol/3Dmol-min.js"></script>
     <script type="module" src="./src/app/app.js"></script>
   </body>
 </html>

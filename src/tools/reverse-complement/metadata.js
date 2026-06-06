@@ -1,12 +1,19 @@
 export const reverseComplementMetadata = {
   id: "reverse-complement",
   name: "Reverse Complement",
-  category: "Analyze DNA/RNA",
-  tags: ["DNA", "RNA", "IUPAC", "format conversion"],
+  category: "Sequence Utilities",
+  tags: ["DNA", "RNA", "raw", "FASTA", "format conversion"],
   summary:
     "Reverse, complement, or reverse-complement DNA/RNA sequences while preserving ambiguous IUPAC symbols.",
   inputType: "DNA/RNA sequence",
   outputType: "DNA/RNA sequence",
+  fileInput: {
+    dropLabel: "Drop one plain-text DNA/RNA sequence or FASTA records here",
+    accept: ".fa,.fasta,.fna,.ffn,.fa.gz,.fasta.gz,.fna.gz,.ffn.gz,.gz,.txt,.seq"
+  },
+  runInWorker: true,
+  workerModule: "../tools/reverse-complement/run.js",
+  workerExport: "runReverseComplementWorker",
   workflow: {
     inputs: [
       { id: "input", kind: "text", mediaType: "text/plain" },
@@ -33,16 +40,6 @@ export const reverseComplementMetadata = {
       ]
     },
     { id: "preserveCase", type: "checkbox", label: "Preserve input case", defaultValue: true },
-    { id: "formatFasta", type: "checkbox", label: "Return FASTA records", defaultValue: true, help: "Adds FASTA headers and wraps output sequences for copy/download." },
-    {
-      id: "lineWidth",
-      type: "number",
-      label: "Bases per output line",
-      help: "Controls line wrapping in FASTA-style text output. It does not change the sequence.",
-      defaultValue: 60,
-      min: 10,
-      max: 200
-    },
     {
       id: "cleaningNote",
       type: "note",

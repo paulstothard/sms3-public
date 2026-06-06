@@ -9,10 +9,12 @@ export const fastaHeaderRenameTableColumns = [
 ];
 
 function normalizeOptions(options = {}) {
+  const useRegex = options.findMode === "regex" || options.useRegex === true;
   return {
     findText: String(options.findText ?? ""),
     replaceText: String(options.replaceText ?? ""),
-    useRegex: options.useRegex === true,
+    useRegex,
+    regexFlags: String(options.regexFlags ?? "g").trim() || "g",
     prefix: String(options.prefix ?? ""),
     suffix: String(options.suffix ?? ""),
     safeIds: options.safeIds !== false,
@@ -40,7 +42,12 @@ function makeReplacer(options, warnings) {
     return (value) => value.split(options.findText).join(options.replaceText);
   }
   try {
-    const pattern = new RegExp(options.findText, "g");
+    const cleanFlags = [...new Set(options.regexFlags.replace(/[^dgimsuvy]/g, "").split(""))].join("");
+    const flags = cleanFlags.includes("g") ? cleanFlags : `${cleanFlags}g`;
+    if (cleanFlags !== options.regexFlags) {
+      warnings.push(`Regular expression flags were normalized from "${options.regexFlags}" to "${flags}".`);
+    }
+    const pattern = new RegExp(options.findText, flags);
     return (value) => value.replace(pattern, options.replaceText);
   } catch (error) {
     warnings.push(`Invalid regular expression "${options.findText}": ${error.message}`);

@@ -2,7 +2,7 @@ import { formatFastaRecord, parseSequenceInput } from "./fasta.js";
 import { isWorkflowStreamCompatible } from "./workflow-contracts.js";
 import { makeCollectionStream, makeTableStream, makeTextStream } from "./workflow.js";
 
-const STEP_TYPES = new Set(["input", "tool", "select-stream", "split", "filter", "sort", "map", "gather"]);
+const STEP_TYPES = new Set(["input", "tool", "select-stream", "split", "filter", "sort", "take", "map", "gather"]);
 
 function makeAbortError() {
   const error = new Error("Workflow run was cancelled.");
@@ -47,13 +47,17 @@ function inferOutputFormatForStream(tool, streamName = "primary") {
   const choices = new Set((outputFormat?.choices ?? []).map((choice) => choice.value));
   const candidates = {
     report: ["report"],
-    table: ["tsv", "csv"],
+    table: ["table", "tsv", "csv"],
     tsv: ["tsv"],
     featuresTsv: ["features-tsv", "tsv"],
+    summaryTable: ["summary-tsv", "tsv"],
+    codonTable: ["codon-tsv"],
     textMap: ["text-map"],
-    overview: ["svg-overview", "svg-map"],
-    plot: ["svg-plot"],
+    overview: ["svg-overview", "linear-svg-map", "svg-map"],
+    plot: ["plot", "svg-plot", "svg"],
+    viewer: ["interactive-viewer"],
     fasta: ["fasta"],
+    sequenceRecords: ["fasta"],
     nucleotideFasta: ["nucleotide-fasta", "fasta"],
     proteinFasta: ["protein-fasta", "fasta"],
     wholeFasta: ["whole-fasta", "fasta"],
@@ -75,6 +79,11 @@ function makeToolOptionsForSelectedStream(tool, step) {
       options.outputFormat = inferred;
     }
   }
+  return options;
+}
+
+function makeToolOptionsForInput(tool, step, inputValue) {
+  const options = makeToolOptionsForSelectedStream(tool, step);
   return options;
 }
 
@@ -312,6 +321,37 @@ function sortItems(items, criteria = {}) {
     .map((wrapped) => wrapped.item);
 }
 
+function getTakeCount(step) {
+  const count = Number.parseInt(step.count ?? 10, 10);
+  return Number.isFinite(count) ? Math.max(0, count) : 10;
+}
+
+function runTakeStep(step, value) {
+  const count = getTakeCount(step);
+  if (value?.kind === "collection") {
+    return {
+      ...value,
+      items: value.items.slice(0, count)
+    };
+  }
+
+  if (value?.kind === "sequence-records") {
+    return {
+      ...value,
+      records: value.records.slice(0, count)
+    };
+  }
+
+  if (value?.kind === "table") {
+    return {
+      ...value,
+      rows: value.rows.slice(0, count)
+    };
+  }
+
+  return value;
+}
+
 function runSortStep(step, value) {
   if (value?.kind === "collection") {
     return {
@@ -474,7 +514,7 @@ async function runToolStep(step, value, context) {
   }
 
   const inputValue = resolveStepInput(step, value, context);
-  const result = await runWorkflowTool(tool, streamToToolInput(inputValue), makeToolOptionsForSelectedStream(tool, step), context);
+  const result = await runWorkflowTool(tool, streamToToolInput(inputValue), makeToolOptionsForInput(tool, step, inputValue), context);
   context.lastToolResult = result;
   return selectToolResultStream(step, result);
 }
@@ -547,6 +587,9 @@ async function runStep(step, value, context) {
       result: undefined,
       warnings: makeMissingFieldWarnings(step, value, "sorting")
     };
+  }
+  if (step.type === "take") {
+    return { value: runTakeStep(step, value), result: undefined, warnings: [] };
   }
   if (step.type === "map") {
     const mapped = await runMapToolStep(step, value, context);
@@ -678,7 +721,7 @@ export function validateWorkflowDefinition(workflow, options = {}) {
       return;
     }
 
-    if (step.type === "sort") {
+    if (step.type === "sort" || step.type === "take") {
       stepOutputs.set(stepId, lastOutput);
       stepTools.delete(stepId);
       return;

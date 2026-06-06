@@ -22,8 +22,11 @@ function getOutputFormat(options) {
   return "text";
 }
 
-export function runTextSearchReplace(input, options = {}) {
+export function runTextSearchReplace(input, options = {}, context = {}) {
+  context.reportProgress?.({ phase: "search", message: "Finding matches" });
+  context.throwIfCancelled?.();
   const result = runTextSearchReplaceCore(input, options);
+  context.throwIfCancelled?.();
   const outputFormat = getOutputFormat(options);
   const report = summarizeTextSearchReplace(
     result,
@@ -32,6 +35,7 @@ export function runTextSearchReplace(input, options = {}) {
   );
   const tsv = exportDelimitedTable(textSearchMatchColumns, result.rows, "\t");
   const output = outputFormat === "report" ? report : outputFormat === "tsv" ? tsv : result.output;
+  context.reportProgress?.({ phase: "output", message: "Preparing output", completed: 1, total: 1 });
 
   return makeToolResult({
     output,

@@ -4,12 +4,19 @@ import { codonUsageTableColumns } from "./run.js";
 export const codonUsageMetadata = {
   id: "codon-usage",
   name: "Codon Usage",
-  category: "Analyze DNA/RNA",
-  tags: ["DNA", "RNA", "codon", "statistics", "translation"],
+  category: "Sequence Analysis",
+  tags: ["DNA", "RNA", "raw", "FASTA", "codon", "statistics", "translation"],
   summary:
-    "Calculate observed codon usage for coding DNA/RNA input in a selected reading frame.",
-  inputType: "DNA/RNA coding sequence",
-  outputType: "Codon usage report, table, plot",
+    "Calculate observed codon usage for coding DNA/RNA sequences using complete codons from the first base.",
+  inputType: "Coding DNA/RNA sequence or FASTA records",
+  outputType: "Codon usage table, plot, or summary report",
+  fileInput: {
+    dropLabel: "Drop one plain-text coding DNA/RNA sequence or FASTA records here",
+    accept: ".fa,.fasta,.fna,.ffn,.fa.gz,.fasta.gz,.fna.gz,.ffn.gz,.gz,.txt,.seq"
+  },
+  runInWorker: true,
+  workerModule: "../tools/codon-usage/run.js",
+  workerExport: "runCodonUsageWorker",
   workflow: {
     inputs: [
       { id: "input", kind: "text", mediaType: "text/plain" },
@@ -26,18 +33,6 @@ export const codonUsageMetadata = {
   },
   options: [
     {
-      id: "frame",
-      type: "radio",
-      label: "Frame",
-      help: "Frame 1 starts counting codons at the first base, frame 2 at the second, and frame 3 at the third.",
-      defaultValue: "1",
-      choices: [
-        { value: "1", label: "Frame 1" },
-        { value: "2", label: "Frame 2" },
-        { value: "3", label: "Frame 3" }
-      ]
-    },
-    {
       id: "geneticCode",
       type: "radio",
       label: "Genetic code",
@@ -46,27 +41,40 @@ export const codonUsageMetadata = {
       choices: geneticCodes.map((code) => ({ value: code.id, label: `${code.id}. ${code.name}` }))
     },
     {
-      id: "excludeTerminalStop",
+      id: "plotValue",
+      type: "radio",
+      label: "Plot value",
+      help: "Choose whether bar height shows raw counts, codons per 1000 counted codons, or fraction within synonymous codons for each amino acid.",
+      defaultValue: "count",
+      choices: [
+        { value: "count", label: "Count" },
+        { value: "per_1000", label: "Per 1000" },
+        { value: "fraction", label: "Fraction" }
+      ],
+      visibleWhen: { option: "outputFormat", value: "plot" }
+    },
+    {
+      id: "showLegend",
       type: "checkbox",
-      label: "Exclude terminal stop codon",
-      help: "Common for coding sequences where the final stop codon is not counted as amino-acid usage.",
-      defaultValue: true
+      label: "Show plot legend",
+      defaultValue: true,
+      visibleWhen: { option: "outputFormat", value: "plot" }
     },
     {
       id: "outputFormat",
       type: "radio",
       label: "Output format",
-      defaultValue: "svg-plot",
+      defaultValue: "table",
       choices: [
-        { value: "report", label: "Summary report" },
-        { value: "tsv", label: "TSV table" },
-        { value: "svg-plot", label: "SVG codon plot" }
+        { value: "table", label: "Codon usage table" },
+        { value: "plot", label: "Codon usage plot" },
+        { value: "report", label: "Summary report" }
       ]
     },
     {
       id: "cleaningNote",
       type: "note",
-      text: "Input is treated as coding sequence. Ambiguous codons are skipped, and trailing bases outside complete codons are ignored."
+      text: "Input is treated as coding sequence starting at the first base. Stop codons are counted, ambiguous codons are skipped, and trailing bases outside complete codons are ignored."
     }
   ]
 };

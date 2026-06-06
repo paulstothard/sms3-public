@@ -12,6 +12,7 @@ export const primerOligoPropertyColumns = [
   { id: "t_count", label: "T/U count", type: "number" },
   { id: "n_count", label: "N/other count", type: "number" },
   { id: "tm_c", label: "Tm C", type: "number" },
+  { id: "tm_method", label: "Tm method", type: "string" },
   { id: "reverse_complement", label: "Reverse complement", type: "string" }
 ];
 
@@ -36,22 +37,34 @@ function countBases(sequence) {
 
 function estimateTm(counts, length) {
   // Short-oligo Wallace rule: Wallace RB et al. Nucleic Acids Res. 1979.
-  // Longer-oligo approximation: Marmur J, Doty P. J Mol Biol. 1962.
+  // Longer-oligo approximation is the Marmur-Doty GC formula as implemented
+  // by Biopython Tm_GC valueset 1: 69.3 + 0.41(%GC) - 650/N.
   if (length === 0) {
     return "";
   }
   if (length < 14) {
     return 2 * (counts.A + counts.T) + 4 * (counts.G + counts.C);
   }
-  return 64.9 + (41 * (counts.G + counts.C - 16.4)) / length;
+  return 69.3 + 0.41 * (((counts.G + counts.C) / length) * 100) - 650 / length;
+}
+
+function getTmMethod(length) {
+  if (length === 0) {
+    return "";
+  }
+  return length < 14 ? "Wallace" : "Marmur-Doty GC";
 }
 
 export function analyzePrimerOligos(input) {
   const records = parseSequenceInput(input, "oligo");
+  const warnings = [];
   const rows = records.map((record) => {
     const sequence = record.sequence.toUpperCase().replace(/U/g, "T");
     const counts = countBases(sequence);
     const gc = counts.G + counts.C;
+    if (counts.N > 0) {
+      warnings.push(`${record.title}: ${counts.N} ambiguous or non-ACGT/U symbol(s) make the Tm estimate approximate.`);
+    }
     return {
       record: record.title,
       length: sequence.length,
@@ -62,6 +75,7 @@ export function analyzePrimerOligos(input) {
       t_count: counts.T,
       n_count: counts.N,
       tm_c: roundNumber(estimateTm(counts, sequence.length)),
+      tm_method: getTmMethod(sequence.length),
       reverse_complement: complementDnaRnaSequence(sequence).split("").reverse().join("")
     };
   });
@@ -69,12 +83,12 @@ export function analyzePrimerOligos(input) {
     "Primer / oligo basic properties",
     "",
     `Records: ${records.length}`,
-    "Tm method: Wallace rule for oligos shorter than 14 nt; Marmur-Doty approximation for longer oligos.",
+    "Tm method: Wallace rule for oligos shorter than 14 nt; Marmur-Doty GC approximation for longer oligos.",
     "Citations: Wallace RB et al. Nucleic Acids Res. 1979; Marmur J and Doty P. J Mol Biol. 1962.",
     "",
-    ...rows.map((row) => `${row.record}: ${row.length} nt, GC ${row.gc_percent}%, Tm ${row.tm_c} C`)
+    ...rows.map((row) => `${row.record}: ${row.length} nt, GC ${row.gc_percent}%, Tm ${row.tm_c} C (${row.tm_method})`)
   ].join("\n");
-  return { records, rows, report, warnings: [] };
+  return { records, rows, report, warnings };
 }
 
 export function makePrimerOligoPropertiesTsv(rows) {

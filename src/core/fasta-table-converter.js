@@ -12,8 +12,25 @@ function recordId(record) {
   return String(record.title ?? "").trim().split(/\s+/)[0] ?? "";
 }
 
+function detectMode(input, requestedMode) {
+  if (requestedMode === "fasta-to-table" || requestedMode === "table-to-fasta") {
+    return requestedMode;
+  }
+  return String(input ?? "").trimStart().startsWith(">") ? "fasta-to-table" : "table-to-fasta";
+}
+
+function findFirstColumn(columns, names) {
+  for (const name of names) {
+    const column = findColumn(columns, name);
+    if (column) {
+      return column;
+    }
+  }
+  return null;
+}
+
 export function convertFastaTable(input, options = {}) {
-  const mode = options.mode === "table-to-fasta" ? "table-to-fasta" : "fasta-to-table";
+  const mode = detectMode(input, options.mode);
   const warnings = [];
   let tableRows = [];
   let fasta = "";
@@ -34,13 +51,23 @@ export function convertFastaTable(input, options = {}) {
       hasHeader: options.hasHeader !== false
     });
     warnings.push(...parsed.warnings);
-    const titleColumn = findColumn(parsed.columns, options.titleColumn ?? "title") ?? findColumn(parsed.columns, options.idColumn ?? "id");
-    const sequenceColumn = findColumn(parsed.columns, options.sequenceColumn ?? "sequence");
+    const requestedTitleColumn = String(options.titleColumn ?? "").trim();
+    const requestedSequenceColumn = String(options.sequenceColumn ?? "").trim();
+    const titleColumn = requestedTitleColumn
+      ? findColumn(parsed.columns, requestedTitleColumn)
+      : findFirstColumn(parsed.columns, ["title", "header", "name", "id", "record", "record_id", "sequence_id", "accession"]);
+    const sequenceColumn = requestedSequenceColumn
+      ? findColumn(parsed.columns, requestedSequenceColumn)
+      : findFirstColumn(parsed.columns, ["sequence", "seq", "dna", "rna", "protein", "bases", "residues"]);
     if (!titleColumn) {
-      warnings.push(`Title column "${options.titleColumn ?? "title"}" was not found.`);
+      warnings.push(requestedTitleColumn
+        ? `Title column "${requestedTitleColumn}" was not found.`
+        : "No title column was detected. Expected a column such as title, name, id, record_id, sequence_id, or accession.");
     }
     if (!sequenceColumn) {
-      warnings.push(`Sequence column "${options.sequenceColumn ?? "sequence"}" was not found.`);
+      warnings.push(requestedSequenceColumn
+        ? `Sequence column "${requestedSequenceColumn}" was not found.`
+        : "No sequence column was detected. Expected a column such as sequence, seq, dna, rna, protein, bases, or residues.");
     }
     sequenceRecords = titleColumn && sequenceColumn
       ? parsed.rows.map((row, index) => ({
@@ -60,7 +87,8 @@ export function convertFastaTable(input, options = {}) {
   const report = [
     "FASTA table converter",
     "",
-    `Mode: ${mode}`,
+    `Detected input: ${mode === "fasta-to-table" ? "FASTA records" : "table"}`,
+    `Conversion: ${mode === "fasta-to-table" ? "FASTA to table" : "table to FASTA"}`,
     `Records: ${sequenceRecords.length}`,
     `Total bases/residues: ${sequenceRecords.reduce((sum, record) => sum + record.sequence.length, 0)}`
   ].join("\n");

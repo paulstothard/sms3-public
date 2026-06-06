@@ -3,10 +3,10 @@ import { tableSummaryColumns } from "../../core/table-summary.js";
 export const tableSummaryMetadata = {
   id: "table-summary",
   name: "Table Summary / Profiler",
-  category: "Analyze Tables",
-  tags: ["table", "CSV", "TSV", "statistics", "workflow"],
-  summary: "Profile a CSV or TSV table with dimensions, inferred column types, missingness, distinct counts, ranges, and numeric summaries.",
-  inputType: "CSV/TSV table",
+  category: "Tables",
+  tags: ["table", "CSV", "TSV", "Excel", "statistics"],
+  summary: "Profile a CSV, TSV, or Excel table with dimensions, inferred column types, missingness, distinct counts, ranges, and numeric summaries.",
+  inputType: "CSV, TSV, or Excel table",
   outputType: "Table profile report or summary table",
   workflow: {
     inputs: [
@@ -32,6 +32,7 @@ export const tableSummaryMetadata = {
           id: "delimiter",
           type: "select",
           label: "Delimiter",
+          help: "The character that separates columns. Auto detect checks common delimiters while respecting quoted fields.",
           defaultValue: "auto",
           choices: [
             { value: "auto", label: "Auto detect" },
@@ -41,8 +42,20 @@ export const tableSummaryMetadata = {
             { value: "pipe", label: "Pipe" }
           ]
         },
-        { id: "hasHeader", type: "checkbox", label: "First row contains column names", defaultValue: true },
-        { id: "trimCells", type: "checkbox", label: "Trim cells before profiling", defaultValue: true }
+        {
+          id: "hasHeader",
+          type: "checkbox",
+          label: "First row contains column names",
+          defaultValue: true,
+          help: "When disabled, generic names such as Column 1 and Column 2 are assigned. Blank header cells are also renamed this way and reported as warnings."
+        },
+        {
+          id: "trimCells",
+          type: "checkbox",
+          label: "Trim cells before profiling",
+          defaultValue: true,
+          help: "Removes spaces around cell values before missing-value checks, type inference, and summary calculations."
+        }
       ]
     },
     {
@@ -72,7 +85,7 @@ export const tableSummaryMetadata = {
           label: "Format",
           defaultValue: "summary-tsv",
           choices: [
-            { value: "summary-tsv", label: "Summary TSV" },
+            { value: "summary-tsv", label: "Summary table" },
             { value: "report", label: "Summary report" }
           ]
         }

@@ -103,7 +103,7 @@ export function renderLinePlotSpecToSvg(spec, options = {}) {
     `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${height}" role="img" aria-label="${escapeXml(spec.title)}">`,
     "<style>text{font-family:Inter,Arial,sans-serif;font-size:12px;fill:#172026}.title{font-size:18px;font-weight:700}.axis{stroke:#5c6b75;stroke-width:1}.grid{stroke:#dfe7ec;stroke-width:1}.line{fill:none;stroke-width:2.4}.dot{stroke:#fff;stroke-width:1}.label{font-size:11px}</style>",
     `<rect width="${width}" height="${height}" fill="#ffffff"></rect>`,
-    `<text class="title" x="${margin.left}" y="28">${escapeXml(spec.title)}</text>`
+    `<text class="title" x="28" y="28">${escapeXml(spec.title)}</text>`
   ];
 
   for (const tick of niceTicks(yMin, yMax)) {
@@ -150,7 +150,7 @@ export function renderLinePlotSpecToSvg(spec, options = {}) {
     parts.push(`</g>`);
   }
 
-  parts.push(`<text x="${margin.left}" y="${height - 20}">${escapeXml(spec.note || `${spec.encoding.x.label} vs ${spec.encoding.y.label}`)}</text>`);
+  parts.push(`<text x="28" y="${height - 20}">${escapeXml(spec.note || `${spec.encoding.x.label} vs ${spec.encoding.y.label}`)}</text>`);
   parts.push("</svg>");
   return parts.join("\n");
 }

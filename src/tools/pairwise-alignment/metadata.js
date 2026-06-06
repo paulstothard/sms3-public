@@ -1,5 +1,5 @@
 import { geneticCodes } from "../../core/genetic-code.js";
-import { codonAlignmentTableColumns, pairwiseAlignmentTableColumns } from "../../core/pairwise-alignment.js";
+import { codonAlignmentTableColumns, PAIRWISE_ALIGNMENT_ENGINES, pairwiseAlignmentTableColumns } from "../../core/pairwise-alignment.js";
 
 function makeWorkflow(alphabet) {
   return {
@@ -33,6 +33,7 @@ function makeCodonWorkflow() {
       { id: "codonFasta", kind: "text", mediaType: "text/x-fasta" },
       { id: "proteinFasta", kind: "text", mediaType: "text/x-fasta" },
       { id: "table", kind: "table", schema: "pairwise-coding-dna-alignment", columns: codonAlignmentTableColumns },
+      { id: "coloredSvg", kind: "text", mediaType: "image/svg+xml" },
       { id: "warnings", kind: "warnings" }
     ]
   };
@@ -49,6 +50,17 @@ const commonOptions = [
       { value: "local", label: "Local" }
     ],
     help: "Global aligns both complete sequences. Local reports the best matching region."
+  },
+  {
+    id: "alignmentEngine",
+    type: "radio",
+    label: "Alignment engine",
+    defaultValue: PAIRWISE_ALIGNMENT_ENGINES.seqAlign,
+    choices: [
+      { value: PAIRWISE_ALIGNMENT_ENGINES.seqAlign, label: "seq-align" },
+      { value: PAIRWISE_ALIGNMENT_ENGINES.sms3, label: "SMS3 affine" }
+    ],
+    help: "Browser runs use bundled local seq-align files for the seq-align engine. Select SMS3 affine when you need ambiguity-aware SMS3 scoring."
   },
   {
     id: "gapOpen",
@@ -71,14 +83,6 @@ const commonOptions = [
     help: "Penalty for extending an existing gap by one aligned symbol."
   },
   {
-    id: "lineWidth",
-    type: "number",
-    label: "Alignment columns per line",
-    defaultValue: 60,
-    min: 20,
-    max: 120
-  },
-  {
     type: "group",
     label: "Output format",
     options: [
@@ -86,14 +90,14 @@ const commonOptions = [
         id: "outputFormat",
         type: "radio",
         label: "Format",
-        defaultValue: "alignment-text",
+        defaultValue: "svg-color",
         choices: [
           { value: "report", label: "Summary report" },
           { value: "alignment-text", label: "Pairwise text" },
           { value: "aligned-fasta", label: "Aligned FASTA" },
-          { value: "clustal", label: "CLUSTAL" },
-          { value: "tsv", label: "Column table" },
-          { value: "svg-color", label: "Colored SVG alignment" }
+          { value: "clustal", label: "CLUSTAL-format text alignment" },
+          { value: "tsv", label: "Alignment table" },
+          { value: "svg-color", label: "Colored alignment" }
         ]
       }
     ]
@@ -103,24 +107,35 @@ const commonOptions = [
 export const pairwiseAlignDnaRnaMetadata = {
   id: "pairwise-align-dna-rna",
   name: "Pairwise Align DNA/RNA",
-  category: "Analyze DNA/RNA",
-  tags: ["DNA", "RNA", "FASTA", "IUPAC", "alignment", "coordinates"],
+  category: "Sequence Alignment & Assembly",
+  tags: ["DNA", "RNA", "raw", "FASTA", "alignment", "coordinates"],
   summary:
     "Align two DNA/RNA sequences with global or local dynamic programming and affine gap penalties.",
   inputType: "Two DNA/RNA sequences",
-  outputType: "Alignment report, text, FASTA, CLUSTAL, table, colored SVG",
+  outputType: "Alignment report, text, FASTA, CLUSTAL-format text, table, colored alignment",
   workflow: makeWorkflow("dna-rna"),
   runInWorker: true,
   workerModule: "../tools/pairwise-alignment/run.js",
   workerExport: "runPairwiseAlignDnaRna",
   options: [
-    ...commonOptions.slice(0, 1),
+    ...commonOptions.slice(0, 2),
     { id: "matchScore", type: "number", label: "Match score", defaultValue: 5, min: -100, max: 100, step: 0.5 },
     { id: "similarScore", type: "number", label: "Ambiguous overlap score", defaultValue: 1, min: -100, max: 100, step: 0.5 },
     { id: "mismatchScore", type: "number", label: "Mismatch score", defaultValue: -4, min: -100, max: 100, step: 0.5 },
-    { ...commonOptions[1], defaultValue: 16 },
-    { ...commonOptions[2], defaultValue: 4 },
-    ...commonOptions.slice(3),
+    {
+      id: "secondSequenceOrientation",
+      type: "radio",
+      label: "Second sequence orientation",
+      defaultValue: "as-provided",
+      choices: [
+        { value: "as-provided", label: "Use submitted orientation" },
+        { value: "best", label: "Try reverse complement and use best score" }
+      ],
+      help: "For DNA/RNA only. When enabled, sequence B is aligned as submitted and as its reverse complement; the higher-scoring orientation is reported."
+    },
+    { ...commonOptions[2], defaultValue: 16 },
+    { ...commonOptions[3], defaultValue: 4 },
+    ...commonOptions.slice(4),
     {
       id: "citationNote",
       type: "note",
@@ -132,12 +147,12 @@ export const pairwiseAlignDnaRnaMetadata = {
 export const pairwiseAlignProteinMetadata = {
   id: "pairwise-align-protein",
   name: "Pairwise Align Protein",
-  category: "Analyze Protein",
-  tags: ["protein", "FASTA", "alignment", "coordinates"],
+  category: "Sequence Alignment & Assembly",
+  tags: ["protein", "raw", "FASTA", "alignment", "coordinates"],
   summary:
     "Align two protein sequences with global or local dynamic programming, BLOSUM62 scores, and affine gap penalties.",
   inputType: "Two protein sequences",
-  outputType: "Alignment report, text, FASTA, CLUSTAL, table, colored SVG",
+  outputType: "Alignment report, text, FASTA, CLUSTAL-format text, table, colored alignment",
   workflow: makeWorkflow("protein"),
   runInWorker: true,
   workerModule: "../tools/pairwise-alignment/run.js",
@@ -160,21 +175,20 @@ export const pairwiseAlignProteinMetadata = {
 export const pairwiseAlignCodingDnaMetadata = {
   id: "pairwise-align-coding-dna",
   name: "Pairwise Align Coding DNA",
-  category: "Analyze DNA/RNA",
-  tags: ["DNA", "RNA", "FASTA", "alignment", "codon", "coordinates", "translation"],
+  category: "Sequence Alignment & Assembly",
+  tags: ["DNA", "RNA", "raw", "FASTA", "alignment", "codon", "coordinates", "translation"],
   summary:
     "Align two coding DNA/RNA sequences by translating complete codons, aligning amino acids with BLOSUM62 and affine gap penalties, and projecting the alignment back to codons.",
   inputType: "Two coding DNA/RNA sequences",
-  outputType: "Codon alignment report, text, aligned codon FASTA, translated protein FASTA, table",
+  outputType: "Codon alignment report, text, aligned codon FASTA, aligned translated protein FASTA, table, colored alignment",
   workflow: makeCodonWorkflow(),
   runInWorker: true,
   workerModule: "../tools/pairwise-alignment/run.js",
   workerExport: "runPairwiseAlignCodingDna",
   options: [
-    ...commonOptions.slice(0, 1),
-    { ...commonOptions[1], help: "Penalty for starting a codon-sized gap. Internally this is applied as a negative amino-acid alignment score." },
-    { ...commonOptions[2], help: "Penalty for extending an existing codon-sized gap by one codon." },
-    { ...commonOptions[3], label: "Codons per line", defaultValue: 20, min: 10, max: 60 },
+    ...commonOptions.slice(0, 2),
+    { ...commonOptions[2], help: "Penalty for starting a codon-sized gap. Internally this is applied as a negative amino-acid alignment score." },
+    { ...commonOptions[3], help: "Penalty for extending an existing codon-sized gap by one codon." },
     {
       id: "geneticCode",
       type: "select",
@@ -191,13 +205,14 @@ export const pairwiseAlignCodingDnaMetadata = {
           id: "outputFormat",
           type: "radio",
           label: "Format",
-          defaultValue: "alignment-text",
+          defaultValue: "svg-color",
           choices: [
             { value: "report", label: "Summary report" },
             { value: "alignment-text", label: "Codon text" },
             { value: "codon-fasta", label: "Aligned codon FASTA" },
-            { value: "protein-fasta", label: "Translated protein FASTA" },
-            { value: "tsv", label: "Codon table" }
+            { value: "protein-fasta", label: "Aligned translated protein FASTA" },
+            { value: "tsv", label: "Codon table" },
+            { value: "svg-color", label: "Colored alignment" }
           ]
         }
       ]

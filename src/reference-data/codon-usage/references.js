@@ -2434,5 +2434,2021 @@ export const codonUsageReferences = [
         "fraction": 0.24326831950169822
       }
     }
+  },
+  {
+    "id": "mouse-grcm39-refseq-cds",
+    "name": "Mouse GRCm39 RefSeq CDS",
+    "organism": "Mus musculus",
+    "taxonomyId": "10090",
+    "geneticCode": {
+      "id": "1",
+      "name": "Standard"
+    },
+    "units": {
+      "count": "observed codon count",
+      "perThousand": "codons per 1000 counted sense codons",
+      "fraction": "fraction within synonymous amino-acid family"
+    },
+    "totals": {
+      "senseCodons": 66465327,
+      "stopCodons": 216
+    },
+    "source": {
+      "name": "NCBI RefSeq assembly CDS FASTA",
+      "version": "GCF_000001635.27_GRCm39",
+      "accessDate": "2026-05-02",
+      "url": "https://www.ncbi.nlm.nih.gov/datasets/genome/GCF_000001635.27/",
+      "citation": "Mouse Genome Sequencing Consortium. Initial sequencing and comparative analysis of the mouse genome. Nature. 2002;420(6915):520-562.",
+      "license": "Generated from NCBI RefSeq GenBank record(s) GCF_000001635.27. Check NCBI and source-record terms before redistributing outside this project."
+    },
+    "description": "Codon usage generated from NCBI RefSeq GRCm39 CDS FASTA records. This reference counts CDS FASTA entries and may include multiple transcript isoforms.",
+    "assumptions": [
+      "Uses NCBI transl_table 1 codon assignments from the SMS3 genetic-code reference.",
+      "Counts annotated CDS features only.",
+      "Skips pseudo/pseudogene CDS features, partial locations, unsupported locations, invalid codons, and out-of-frame CDS features.",
+      "Skips CDS features with translation exceptions, such as selenocysteine recoding, until those rules are modeled explicitly.",
+      "Excludes terminal stop codons from sense codon counts.",
+      "Overlapping CDS features are counted independently because they are separate annotated coding features."
+    ],
+    "buildStats": {
+      "counts": {
+        "TTT": 1049221,
+        "TTC": 1222034,
+        "TTA": 487010,
+        "TTG": 869498,
+        "TCT": 1165730,
+        "TCC": 1219235,
+        "TCA": 896624,
+        "TCG": 286321,
+        "TAT": 739233,
+        "TAC": 955617,
+        "TAA": 21,
+        "TAG": 22,
+        "TGT": 705281,
+        "TGC": 716178,
+        "TGA": 173,
+        "TGG": 743867,
+        "CTT": 889636,
+        "CTC": 1228984,
+        "CTA": 530841,
+        "CTG": 2431944,
+        "CCT": 1346438,
+        "CCC": 1218107,
+        "CCA": 1283953,
+        "CCG": 405615,
+        "CAT": 751527,
+        "CAC": 1012844,
+        "CAA": 877001,
+        "CAG": 2453546,
+        "CGT": 308449,
+        "CGC": 567793,
+        "CGA": 463315,
+        "CGG": 699389,
+        "ATT": 976193,
+        "ATC": 1339215,
+        "ATA": 479232,
+        "ATG": 1436684,
+        "ACT": 940071,
+        "ACC": 1220349,
+        "ACA": 1124249,
+        "ACG": 381776,
+        "AAT": 1064795,
+        "AAC": 1313096,
+        "AAA": 1619185,
+        "AAG": 2274550,
+        "AGT": 956024,
+        "AGC": 1395636,
+        "AGA": 874381,
+        "AGG": 854293,
+        "GTT": 722648,
+        "GTC": 961965,
+        "GTA": 498438,
+        "GTG": 1738968,
+        "GCT": 1354506,
+        "GCC": 1672603,
+        "GCA": 1126844,
+        "GCG": 383685,
+        "GAT": 1503899,
+        "GAC": 1755600,
+        "GAA": 2055506,
+        "GAG": 2769090,
+        "GGT": 737629,
+        "GGC": 1310541,
+        "GGA": 1118630,
+        "GGG": 979815
+      },
+      "genomeLength": 199794919,
+      "cdsCount": 98005,
+      "countedCds": 97476,
+      "terminalStopCodons": 97328,
+      "skipped": {
+        "nonCds": 0,
+        "pseudo": 176,
+        "partial": 0,
+        "differentGeneticCode": 0,
+        "translationException": 0,
+        "invalidLocation": 0,
+        "invalidCodon": 0,
+        "shortOrOutOfFrame": 353
+      }
+    },
+    "codons": {
+      "TTT": {
+        "aminoAcid": "F",
+        "count": 1049221,
+        "perThousand": 15.785990190042998,
+        "fraction": 0.4619564954177316
+      },
+      "TTC": {
+        "aminoAcid": "F",
+        "count": 1222034,
+        "perThousand": 18.38603758016567,
+        "fraction": 0.5380435045822684
+      },
+      "TTA": {
+        "aminoAcid": "L",
+        "count": 487010,
+        "perThousand": 7.327279078909821,
+        "fraction": 0.07564718566404982
+      },
+      "TTG": {
+        "aminoAcid": "L",
+        "count": 869498,
+        "perThousand": 13.081978818820826,
+        "fraction": 0.13505898573031352
+      },
+      "TCT": {
+        "aminoAcid": "S",
+        "count": 1165730,
+        "perThousand": 17.538919202187934,
+        "fraction": 0.19692815525452018
+      },
+      "TCC": {
+        "aminoAcid": "S",
+        "count": 1219235,
+        "perThousand": 18.343925397372978,
+        "fraction": 0.2059668185358058
+      },
+      "TCA": {
+        "aminoAcid": "S",
+        "count": 896624,
+        "perThousand": 13.490101387750638,
+        "fraction": 0.15146775863787404
+      },
+      "TCG": {
+        "aminoAcid": "S",
+        "count": 286321,
+        "perThousand": 4.307825040866796,
+        "fraction": 0.048368547039734304
+      },
+      "TAT": {
+        "aminoAcid": "Y",
+        "count": 739233,
+        "perThousand": 11.122084752550755,
+        "fraction": 0.4361642623240995
+      },
+      "TAC": {
+        "aminoAcid": "Y",
+        "count": 955617,
+        "perThousand": 14.377676950269123,
+        "fraction": 0.5638357376759006
+      },
+      "TAA": {
+        "aminoAcid": "*",
+        "count": 21,
+        "perThousand": 0,
+        "fraction": 0
+      },
+      "TAG": {
+        "aminoAcid": "*",
+        "count": 22,
+        "perThousand": 0,
+        "fraction": 0
+      },
+      "TGT": {
+        "aminoAcid": "C",
+        "count": 705281,
+        "perThousand": 10.611262019368386,
+        "fraction": 0.496166966475994
+      },
+      "TGC": {
+        "aminoAcid": "C",
+        "count": 716178,
+        "perThousand": 10.775212164381587,
+        "fraction": 0.503833033524006
+      },
+      "TGA": {
+        "aminoAcid": "*",
+        "count": 173,
+        "perThousand": 0,
+        "fraction": 0
+      },
+      "TGG": {
+        "aminoAcid": "W",
+        "count": 743867,
+        "perThousand": 11.191805315273632,
+        "fraction": 1
+      },
+      "CTT": {
+        "aminoAcid": "L",
+        "count": 889636,
+        "perThousand": 13.384963862436123,
+        "fraction": 0.13818701806004524
+      },
+      "CTC": {
+        "aminoAcid": "L",
+        "count": 1228984,
+        "perThousand": 18.49060337881133,
+        "fraction": 0.1908978888034057
+      },
+      "CTA": {
+        "aminoAcid": "L",
+        "count": 530841,
+        "perThousand": 7.98673570055557,
+        "fraction": 0.08245544790679837
+      },
+      "CTG": {
+        "aminoAcid": "L",
+        "count": 2431944,
+        "perThousand": 36.58966426208961,
+        "fraction": 0.3777534738353873
+      },
+      "CCT": {
+        "aminoAcid": "P",
+        "count": 1346438,
+        "perThousand": 20.257750330484342,
+        "fraction": 0.31650264109110404
+      },
+      "CCC": {
+        "aminoAcid": "P",
+        "count": 1218107,
+        "perThousand": 18.326954142571207,
+        "fraction": 0.28633630559413914
+      },
+      "CCA": {
+        "aminoAcid": "P",
+        "count": 1283953,
+        "perThousand": 19.317636096185907,
+        "fraction": 0.3018145028117495
+      },
+      "CCG": {
+        "aminoAcid": "P",
+        "count": 405615,
+        "perThousand": 6.102655599663265,
+        "fraction": 0.09534655050300732
+      },
+      "CAT": {
+        "aminoAcid": "H",
+        "count": 751527,
+        "perThousand": 11.307053375363669,
+        "fraction": 0.42594613037734125
+      },
+      "CAC": {
+        "aminoAcid": "H",
+        "count": 1012844,
+        "perThousand": 15.238682268124553,
+        "fraction": 0.5740538696226587
+      },
+      "CAA": {
+        "aminoAcid": "Q",
+        "count": 877001,
+        "perThousand": 13.194864745042178,
+        "fraction": 0.2633204095303264
+      },
+      "CAG": {
+        "aminoAcid": "Q",
+        "count": 2453546,
+        "perThousand": 36.91467582789444,
+        "fraction": 0.7366795904696736
+      },
+      "CGT": {
+        "aminoAcid": "R",
+        "count": 308449,
+        "perThousand": 4.6407505074036575,
+        "fraction": 0.08186839437098221
+      },
+      "CGC": {
+        "aminoAcid": "R",
+        "count": 567793,
+        "perThousand": 8.542694749700095,
+        "fraction": 0.1507033618040036
+      },
+      "CGA": {
+        "aminoAcid": "R",
+        "count": 463315,
+        "perThousand": 6.97077741000206,
+        "fraction": 0.12297285819695192
+      },
+      "CGG": {
+        "aminoAcid": "R",
+        "count": 699389,
+        "perThousand": 10.52261429481871,
+        "fraction": 0.18563151273217576
+      },
+      "ATT": {
+        "aminoAcid": "I",
+        "count": 976193,
+        "perThousand": 14.687251896014894,
+        "fraction": 0.3493090344373515
+      },
+      "ATC": {
+        "aminoAcid": "I",
+        "count": 1339215,
+        "perThousand": 20.149077127086127,
+        "fraction": 0.479208413248218
+      },
+      "ATA": {
+        "aminoAcid": "I",
+        "count": 479232,
+        "perThousand": 7.210255657058604,
+        "fraction": 0.1714825523144305
+      },
+      "ATG": {
+        "aminoAcid": "M",
+        "count": 1436684,
+        "perThousand": 21.615540987257912,
+        "fraction": 1
+      },
+      "ACT": {
+        "aminoAcid": "T",
+        "count": 940071,
+        "perThousand": 14.143780560953232,
+        "fraction": 0.2563985004548002
+      },
+      "ACC": {
+        "aminoAcid": "T",
+        "count": 1220349,
+        "perThousand": 18.360686016033593,
+        "fraction": 0.33284257639211823
+      },
+      "ACA": {
+        "aminoAcid": "T",
+        "count": 1124249,
+        "perThousand": 16.914819361379205,
+        "fraction": 0.30663190092855613
+      },
+      "ACG": {
+        "aminoAcid": "T",
+        "count": 381776,
+        "perThousand": 5.743987387589321,
+        "fraction": 0.1041270222245254
+      },
+      "AAT": {
+        "aminoAcid": "N",
+        "count": 1064795,
+        "perThousand": 16.020307851641203,
+        "fraction": 0.44778965898773326
+      },
+      "AAC": {
+        "aminoAcid": "N",
+        "count": 1313096,
+        "perThousand": 19.756105314880944,
+        "fraction": 0.5522103410122667
+      },
+      "AAA": {
+        "aminoAcid": "K",
+        "count": 1619185,
+        "perThousand": 24.36134858706104,
+        "fraction": 0.4158436565405709
+      },
+      "AAG": {
+        "aminoAcid": "K",
+        "count": 2274550,
+        "perThousand": 34.22160249057377,
+        "fraction": 0.584156343459429
+      },
+      "AGT": {
+        "aminoAcid": "S",
+        "count": 956024,
+        "perThousand": 14.383800443801322,
+        "fraction": 0.16150227127983957
+      },
+      "AGC": {
+        "aminoAcid": "S",
+        "count": 1395636,
+        "perThousand": 20.99795582138639,
+        "fraction": 0.2357664492522261
+      },
+      "AGA": {
+        "aminoAcid": "R",
+        "count": 874381,
+        "perThousand": 13.155445695768563,
+        "fraction": 0.2320778103948912
+      },
+      "AGG": {
+        "aminoAcid": "R",
+        "count": 854293,
+        "perThousand": 12.853212924085966,
+        "fraction": 0.22674606250099533
+      },
+      "GTT": {
+        "aminoAcid": "V",
+        "count": 722648,
+        "perThousand": 10.872556152473303,
+        "fraction": 0.18425407934025817
+      },
+      "GTC": {
+        "aminoAcid": "V",
+        "count": 961965,
+        "perThousand": 14.473185394845045,
+        "fraction": 0.24527290663303772
+      },
+      "GTA": {
+        "aminoAcid": "V",
+        "count": 498438,
+        "perThousand": 7.499218351848325,
+        "fraction": 0.12708709468261117
+      },
+      "GTG": {
+        "aminoAcid": "V",
+        "count": 1738968,
+        "perThousand": 26.16353636535934,
+        "fraction": 0.44338591934409294
+      },
+      "GCT": {
+        "aminoAcid": "A",
+        "count": 1354506,
+        "perThousand": 20.379136929545236,
+        "fraction": 0.29850464052002385
+      },
+      "GCC": {
+        "aminoAcid": "A",
+        "count": 1672603,
+        "perThousand": 25.165045829083184,
+        "fraction": 0.36860653053416775
+      },
+      "GCA": {
+        "aminoAcid": "A",
+        "count": 1126844,
+        "perThousand": 16.95386227468647,
+        "fraction": 0.24833272288357952
+      },
+      "GCG": {
+        "aminoAcid": "A",
+        "count": 383685,
+        "perThousand": 5.772709129979907,
+        "fraction": 0.08455610606222885
+      },
+      "GAT": {
+        "aminoAcid": "D",
+        "count": 1503899,
+        "perThousand": 22.62682014639001,
+        "fraction": 0.4613896184659053
+      },
+      "GAC": {
+        "aminoAcid": "D",
+        "count": 1755600,
+        "perThousand": 26.41377210105353,
+        "fraction": 0.5386103815340947
+      },
+      "GAA": {
+        "aminoAcid": "E",
+        "count": 2055506,
+        "perThousand": 30.925989426035624,
+        "fraction": 0.42604727939914555
+      },
+      "GAG": {
+        "aminoAcid": "E",
+        "count": 2769090,
+        "perThousand": 41.6621737225486,
+        "fraction": 0.5739527206008544
+      },
+      "GGT": {
+        "aminoAcid": "G",
+        "count": 737629,
+        "perThousand": 11.097951868949655,
+        "fraction": 0.1778870235119489
+      },
+      "GGC": {
+        "aminoAcid": "G",
+        "count": 1310541,
+        "perThousand": 19.717664219119843,
+        "fraction": 0.316050802883798
+      },
+      "GGA": {
+        "aminoAcid": "G",
+        "count": 1118630,
+        "perThousand": 16.830279041582088,
+        "fraction": 0.2697694384455755
+      },
+      "GGG": {
+        "aminoAcid": "G",
+        "count": 979815,
+        "perThousand": 14.741746474819871,
+        "fraction": 0.23629273515867763
+      }
+    }
+  },
+  {
+    "id": "drosophila-release6-refseq-cds",
+    "name": "D. melanogaster Release 6 RefSeq CDS",
+    "organism": "Drosophila melanogaster",
+    "taxonomyId": "7227",
+    "geneticCode": {
+      "id": "1",
+      "name": "Standard"
+    },
+    "units": {
+      "count": "observed codon count",
+      "perThousand": "codons per 1000 counted sense codons",
+      "fraction": "fraction within synonymous amino-acid family"
+    },
+    "totals": {
+      "senseCodons": 20326702,
+      "stopCodons": 629
+    },
+    "source": {
+      "name": "NCBI RefSeq assembly CDS FASTA",
+      "version": "GCF_000001215.4_Release_6_plus_ISO1_MT",
+      "accessDate": "2026-05-02",
+      "url": "https://www.ncbi.nlm.nih.gov/datasets/genome/GCF_000001215.4/",
+      "citation": "Adams MD et al. The genome sequence of Drosophila melanogaster. Science. 2000;287(5461):2185-2195.",
+      "license": "Generated from NCBI RefSeq GenBank record(s) GCF_000001215.4. Check NCBI and source-record terms before redistributing outside this project."
+    },
+    "description": "Codon usage generated from NCBI RefSeq D. melanogaster Release 6 CDS FASTA records. This reference counts CDS FASTA entries and may include multiple transcript isoforms.",
+    "assumptions": [
+      "Uses NCBI transl_table 1 codon assignments from the SMS3 genetic-code reference.",
+      "Counts annotated CDS features only.",
+      "Skips pseudo/pseudogene CDS features, partial locations, unsupported locations, invalid codons, and out-of-frame CDS features.",
+      "Skips CDS features with translation exceptions, such as selenocysteine recoding, until those rules are modeled explicitly.",
+      "Excludes terminal stop codons from sense codon counts.",
+      "Overlapping CDS features are counted independently because they are separate annotated coding features."
+    ],
+    "buildStats": {
+      "counts": {
+        "TTT": 255142,
+        "TTC": 416578,
+        "TTA": 93075,
+        "TTG": 321197,
+        "TCT": 148781,
+        "TCC": 400531,
+        "TCA": 173122,
+        "TCG": 356849,
+        "TAT": 217814,
+        "TAC": 354155,
+        "TAA": 71,
+        "TAG": 150,
+        "TGT": 117780,
+        "TGC": 266645,
+        "TGA": 408,
+        "TGG": 187053,
+        "CTT": 175789,
+        "CTC": 270889,
+        "CTA": 164038,
+        "CTG": 749417,
+        "CCT": 151115,
+        "CCC": 374763,
+        "CCA": 300784,
+        "CCG": 338729,
+        "CAT": 220097,
+        "CAC": 320694,
+        "CAA": 340975,
+        "CAG": 764254,
+        "CGT": 181657,
+        "CGC": 362096,
+        "CGA": 173405,
+        "CGG": 163684,
+        "ATT": 333388,
+        "ATC": 447720,
+        "ATA": 192315,
+        "ATG": 457947,
+        "ACT": 204561,
+        "ACC": 438617,
+        "ACA": 240510,
+        "ACG": 303562,
+        "AAT": 441059,
+        "AAC": 527514,
+        "AAA": 334521,
+        "AAG": 780724,
+        "AGT": 247761,
+        "AGC": 429527,
+        "AGA": 103911,
+        "AGG": 123735,
+        "GTT": 229940,
+        "GTC": 275196,
+        "GTA": 132655,
+        "GTG": 550113,
+        "GCT": 294128,
+        "GCC": 672121,
+        "GCA": 269112,
+        "GCG": 287973,
+        "GAT": 567041,
+        "GAC": 485857,
+        "GAA": 448899,
+        "GAG": 866836,
+        "GGT": 277230,
+        "GGC": 539758,
+        "GGA": 367891,
+        "GGG": 93472
+      },
+      "genomeLength": 61229245,
+      "cdsCount": 30802,
+      "countedCds": 30741,
+      "terminalStopCodons": 30739,
+      "skipped": {
+        "nonCds": 0,
+        "pseudo": 0,
+        "partial": 0,
+        "differentGeneticCode": 0,
+        "translationException": 0,
+        "invalidLocation": 0,
+        "invalidCodon": 0,
+        "shortOrOutOfFrame": 61
+      }
+    },
+    "codons": {
+      "TTT": {
+        "aminoAcid": "F",
+        "count": 255142,
+        "perThousand": 12.552060831117611,
+        "fraction": 0.37983385934615616
+      },
+      "TTC": {
+        "aminoAcid": "F",
+        "count": 416578,
+        "perThousand": 20.49412639591017,
+        "fraction": 0.6201661406538439
+      },
+      "TTA": {
+        "aminoAcid": "L",
+        "count": 93075,
+        "perThousand": 4.578952355379638,
+        "fraction": 0.05245420295817471
+      },
+      "TTG": {
+        "aminoAcid": "L",
+        "count": 321197,
+        "perThousand": 15.8017272059186,
+        "fraction": 0.18101673518728814
+      },
+      "TCT": {
+        "aminoAcid": "S",
+        "count": 148781,
+        "perThousand": 7.319485472852409,
+        "fraction": 0.08469967909068293
+      },
+      "TCC": {
+        "aminoAcid": "S",
+        "count": 400531,
+        "perThousand": 19.704672208998783,
+        "fraction": 0.22801867957514954
+      },
+      "TCA": {
+        "aminoAcid": "S",
+        "count": 173122,
+        "perThousand": 8.516974371936973,
+        "fraction": 0.09855679047416814
+      },
+      "TCG": {
+        "aminoAcid": "S",
+        "count": 356849,
+        "perThousand": 17.555676272520746,
+        "fraction": 0.2031509116340871
+      },
+      "TAT": {
+        "aminoAcid": "Y",
+        "count": 217814,
+        "perThousand": 10.71565864447661,
+        "fraction": 0.38081434483337384
+      },
+      "TAC": {
+        "aminoAcid": "Y",
+        "count": 354155,
+        "perThousand": 17.423141245441588,
+        "fraction": 0.6191856551666262
+      },
+      "TAA": {
+        "aminoAcid": "*",
+        "count": 71,
+        "perThousand": 0,
+        "fraction": 0
+      },
+      "TAG": {
+        "aminoAcid": "*",
+        "count": 150,
+        "perThousand": 0,
+        "fraction": 0
+      },
+      "TGT": {
+        "aminoAcid": "C",
+        "count": 117780,
+        "perThousand": 5.794348733995313,
+        "fraction": 0.3063796579306757
+      },
+      "TGC": {
+        "aminoAcid": "C",
+        "count": 266645,
+        "perThousand": 13.117966702124132,
+        "fraction": 0.6936203420693243
+      },
+      "TGA": {
+        "aminoAcid": "*",
+        "count": 408,
+        "perThousand": 0,
+        "fraction": 0
+      },
+      "TGG": {
+        "aminoAcid": "W",
+        "count": 187053,
+        "perThousand": 9.202329034980687,
+        "fraction": 1
+      },
+      "CTT": {
+        "aminoAcid": "L",
+        "count": 175789,
+        "perThousand": 8.648181096963,
+        "fraction": 0.09906926547208783
+      },
+      "CTC": {
+        "aminoAcid": "L",
+        "count": 270889,
+        "perThousand": 13.32675610632753,
+        "fraction": 0.15266469605304314
+      },
+      "CTA": {
+        "aminoAcid": "L",
+        "count": 164038,
+        "perThousand": 8.0700745256166,
+        "fraction": 0.09244676384478177
+      },
+      "CTG": {
+        "aminoAcid": "L",
+        "count": 749417,
+        "perThousand": 36.8685977685903,
+        "fraction": 0.42234833648462444
+      },
+      "CCT": {
+        "aminoAcid": "P",
+        "count": 151115,
+        "perThousand": 7.43430980588981,
+        "fraction": 0.1296689265662769
+      },
+      "CCC": {
+        "aminoAcid": "P",
+        "count": 374763,
+        "perThousand": 18.43698008658758,
+        "fraction": 0.32157705010593013
+      },
+      "CCA": {
+        "aminoAcid": "P",
+        "count": 300784,
+        "perThousand": 14.797481657378556,
+        "fraction": 0.2580970678510474
+      },
+      "CCG": {
+        "aminoAcid": "P",
+        "count": 338729,
+        "perThousand": 16.664238005752235,
+        "fraction": 0.2906569554767456
+      },
+      "CAT": {
+        "aminoAcid": "H",
+        "count": 220097,
+        "perThousand": 10.827973962524762,
+        "fraction": 0.40699087078002405
+      },
+      "CAC": {
+        "aminoAcid": "H",
+        "count": 320694,
+        "perThousand": 15.776981430632476,
+        "fraction": 0.593009129219976
+      },
+      "CAA": {
+        "aminoAcid": "Q",
+        "count": 340975,
+        "perThousand": 16.774733058023873,
+        "fraction": 0.3085107249266894
+      },
+      "CAG": {
+        "aminoAcid": "Q",
+        "count": 764254,
+        "perThousand": 37.59852434497244,
+        "fraction": 0.6914892750733106
+      },
+      "CGT": {
+        "aminoAcid": "R",
+        "count": 181657,
+        "perThousand": 8.936865409843662,
+        "fraction": 0.16387818361588036
+      },
+      "CGC": {
+        "aminoAcid": "R",
+        "count": 362096,
+        "perThousand": 17.81380963817938,
+        "fraction": 0.3266575731988077
+      },
+      "CGA": {
+        "aminoAcid": "R",
+        "count": 173405,
+        "perThousand": 8.530896945308688,
+        "fraction": 0.15643380893613643
+      },
+      "CGG": {
+        "aminoAcid": "R",
+        "count": 163684,
+        "perThousand": 8.05265900980887,
+        "fraction": 0.14766420565671437
+      },
+      "ATT": {
+        "aminoAcid": "I",
+        "count": 333388,
+        "perThousand": 16.401480181093813,
+        "fraction": 0.34249036646966424
+      },
+      "ATC": {
+        "aminoAcid": "I",
+        "count": 447720,
+        "perThousand": 22.02619982326695,
+        "fraction": 0.4599439298229033
+      },
+      "ATA": {
+        "aminoAcid": "I",
+        "count": 192315,
+        "perThousand": 9.461200346224391,
+        "fraction": 0.19756570370743243
+      },
+      "ATG": {
+        "aminoAcid": "M",
+        "count": 457947,
+        "perThousand": 22.529331123169907,
+        "fraction": 1
+      },
+      "ACT": {
+        "aminoAcid": "T",
+        "count": 204561,
+        "perThousand": 10.063659121878208,
+        "fraction": 0.17229816803537587
+      },
+      "ACC": {
+        "aminoAcid": "T",
+        "count": 438617,
+        "perThousand": 21.578365245872156,
+        "fraction": 0.3694394609391451
+      },
+      "ACA": {
+        "aminoAcid": "T",
+        "count": 240510,
+        "perThousand": 11.832219511064805,
+        "fraction": 0.20257738471257106
+      },
+      "ACG": {
+        "aminoAcid": "T",
+        "count": 303562,
+        "perThousand": 14.934149179734126,
+        "fraction": 0.255684986312908
+      },
+      "AAT": {
+        "aminoAcid": "N",
+        "count": 441059,
+        "perThousand": 21.69850278712208,
+        "fraction": 0.4553699101668124
+      },
+      "AAC": {
+        "aminoAcid": "N",
+        "count": 527514,
+        "perThousand": 25.951775157622716,
+        "fraction": 0.5446300898331876
+      },
+      "AAA": {
+        "aminoAcid": "K",
+        "count": 334521,
+        "perThousand": 16.457219670953013,
+        "fraction": 0.29995292514200916
+      },
+      "AAG": {
+        "aminoAcid": "K",
+        "count": 780724,
+        "perThousand": 38.408788597382895,
+        "fraction": 0.7000470748579909
+      },
+      "AGT": {
+        "aminoAcid": "S",
+        "count": 247761,
+        "perThousand": 12.188942406889224,
+        "fraction": 0.14104809882435723
+      },
+      "AGC": {
+        "aminoAcid": "S",
+        "count": 429527,
+        "perThousand": 21.131170221317753,
+        "fraction": 0.2445258404015551
+      },
+      "AGA": {
+        "aminoAcid": "R",
+        "count": 103911,
+        "perThousand": 5.112044246036568,
+        "fraction": 0.0937412042349579
+      },
+      "AGG": {
+        "aminoAcid": "R",
+        "count": 123735,
+        "perThousand": 6.0873131312694015,
+        "fraction": 0.1116250243575032
+      },
+      "GTT": {
+        "aminoAcid": "V",
+        "count": 229940,
+        "perThousand": 11.31221385544984,
+        "fraction": 0.19356783039706912
+      },
+      "GTC": {
+        "aminoAcid": "V",
+        "count": 275196,
+        "perThousand": 13.538644881988233,
+        "fraction": 0.23166518506545983
+      },
+      "GTA": {
+        "aminoAcid": "V",
+        "count": 132655,
+        "perThousand": 6.5261447725263055,
+        "fraction": 0.11167148187058887
+      },
+      "GTG": {
+        "aminoAcid": "V",
+        "count": 550113,
+        "perThousand": 27.063563976094105,
+        "fraction": 0.46309550266688215
+      },
+      "GCT": {
+        "aminoAcid": "A",
+        "count": 294128,
+        "perThousand": 14.470030603095378,
+        "fraction": 0.1930817535747249
+      },
+      "GCC": {
+        "aminoAcid": "A",
+        "count": 672121,
+        "perThousand": 33.0659149723354,
+        "fraction": 0.4412170935592588
+      },
+      "GCA": {
+        "aminoAcid": "A",
+        "count": 269112,
+        "perThousand": 13.239334152682517,
+        "fraction": 0.17665987892346655
+      },
+      "GCG": {
+        "aminoAcid": "A",
+        "count": 287973,
+        "perThousand": 14.167226931353644,
+        "fraction": 0.1890412739425497
+      },
+      "GAT": {
+        "aminoAcid": "D",
+        "count": 567041,
+        "perThousand": 27.89636016703546,
+        "fraction": 0.5385526423262272
+      },
+      "GAC": {
+        "aminoAcid": "D",
+        "count": 485857,
+        "perThousand": 23.90240187512957,
+        "fraction": 0.46144735767377276
+      },
+      "GAA": {
+        "aminoAcid": "E",
+        "count": 448899,
+        "perThousand": 22.08420234625371,
+        "fraction": 0.34117736474290034
+      },
+      "GAG": {
+        "aminoAcid": "E",
+        "count": 866836,
+        "perThousand": 42.645186612171514,
+        "fraction": 0.6588226352570996
+      },
+      "GGT": {
+        "aminoAcid": "G",
+        "count": 277230,
+        "perThousand": 13.638710303324169,
+        "fraction": 0.21686532102685413
+      },
+      "GGC": {
+        "aminoAcid": "G",
+        "count": 539758,
+        "perThousand": 26.55413554053186,
+        "fraction": 0.4222298883483488
+      },
+      "GGA": {
+        "aminoAcid": "G",
+        "count": 367891,
+        "perThousand": 18.098902615879346,
+        "fraction": 0.2877855925328803
+      },
+      "GGG": {
+        "aminoAcid": "G",
+        "count": 93472,
+        "perThousand": 4.59848331519791,
+        "fraction": 0.07311919809191685
+      }
+    }
+  },
+  {
+    "id": "arabidopsis-tair10-refseq-cds",
+    "name": "Arabidopsis TAIR10.1 RefSeq CDS",
+    "organism": "Arabidopsis thaliana",
+    "taxonomyId": "3702",
+    "geneticCode": {
+      "id": "1",
+      "name": "Standard"
+    },
+    "units": {
+      "count": "observed codon count",
+      "perThousand": "codons per 1000 counted sense codons",
+      "fraction": "fraction within synonymous amino-acid family"
+    },
+    "totals": {
+      "senseCodons": 20818406,
+      "stopCodons": 31
+    },
+    "source": {
+      "name": "NCBI RefSeq assembly CDS FASTA",
+      "version": "GCF_000001735.4_TAIR10.1",
+      "accessDate": "2026-05-02",
+      "url": "https://www.ncbi.nlm.nih.gov/datasets/genome/GCF_000001735.4/",
+      "citation": "Arabidopsis Genome Initiative. Analysis of the genome sequence of the flowering plant Arabidopsis thaliana. Nature. 2000;408(6814):796-815.",
+      "license": "Generated from NCBI RefSeq GenBank record(s) GCF_000001735.4. Check NCBI and source-record terms before redistributing outside this project."
+    },
+    "description": "Codon usage generated from NCBI RefSeq Arabidopsis TAIR10.1 CDS FASTA records. This reference counts CDS FASTA entries and may include multiple transcript isoforms.",
+    "assumptions": [
+      "Uses NCBI transl_table 1 codon assignments from the SMS3 genetic-code reference.",
+      "Counts annotated CDS features only.",
+      "Skips pseudo/pseudogene CDS features, partial locations, unsupported locations, invalid codons, and out-of-frame CDS features.",
+      "Skips CDS features with translation exceptions, such as selenocysteine recoding, until those rules are modeled explicitly.",
+      "Excludes terminal stop codons from sense codon counts.",
+      "Overlapping CDS features are counted independently because they are separate annotated coding features."
+    ],
+    "buildStats": {
+      "counts": {
+        "TTT": 472964,
+        "TTC": 403657,
+        "TTA": 280141,
+        "TTG": 449244,
+        "TCT": 541031,
+        "TCC": 226378,
+        "TCA": 408208,
+        "TCG": 184111,
+        "TAT": 317433,
+        "TAC": 265602,
+        "TAA": 8,
+        "TAG": 10,
+        "TGT": 227788,
+        "TGC": 153443,
+        "TGA": 13,
+        "TGG": 254851,
+        "CTT": 513926,
+        "CTC": 311181,
+        "CTA": 215183,
+        "CTG": 219097,
+        "CCT": 387073,
+        "CCC": 106543,
+        "CCA": 340903,
+        "CCG": 158603,
+        "CAT": 301039,
+        "CAC": 173633,
+        "CAA": 421069,
+        "CAG": 325854,
+        "CGT": 177366,
+        "CGC": 76739,
+        "CGA": 131933,
+        "CGG": 100303,
+        "ATT": 457907,
+        "ATC": 358746,
+        "ATA": 284655,
+        "ATG": 509734,
+        "ACT": 364052,
+        "ACC": 199366,
+        "ACA": 342390,
+        "ACG": 147738,
+        "AAT": 496328,
+        "AAC": 418781,
+        "AAA": 659698,
+        "AAG": 670212,
+        "AGT": 315715,
+        "AGC": 242416,
+        "AGA": 408597,
+        "AGG": 231234,
+        "GTT": 562212,
+        "GTC": 248364,
+        "GTA": 220378,
+        "GTG": 349592,
+        "GCT": 568078,
+        "GCC": 195403,
+        "GCA": 378037,
+        "GCG": 167391,
+        "GAT": 784820,
+        "GAC": 345886,
+        "GAA": 753510,
+        "GAG": 667281,
+        "GGT": 442771,
+        "GGC": 183075,
+        "GGA": 486994,
+        "GGG": 211749
+      },
+      "genomeLength": 62670512,
+      "cdsCount": 48265,
+      "countedCds": 48225,
+      "terminalStopCodons": 48186,
+      "skipped": {
+        "nonCds": 0,
+        "pseudo": 0,
+        "partial": 0,
+        "differentGeneticCode": 0,
+        "translationException": 0,
+        "invalidLocation": 0,
+        "invalidCodon": 5,
+        "shortOrOutOfFrame": 35
+      }
+    },
+    "codons": {
+      "TTT": {
+        "aminoAcid": "F",
+        "count": 472964,
+        "perThousand": 22.718550113779127,
+        "fraction": 0.5395307664315594
+      },
+      "TTC": {
+        "aminoAcid": "F",
+        "count": 403657,
+        "perThousand": 19.389428758378525,
+        "fraction": 0.46046923356844066
+      },
+      "TTA": {
+        "aminoAcid": "L",
+        "count": 280141,
+        "perThousand": 13.456409679011928,
+        "fraction": 0.1408612953118809
+      },
+      "TTG": {
+        "aminoAcid": "L",
+        "count": 449244,
+        "perThousand": 21.5791737369326,
+        "fraction": 0.2258901472868685
+      },
+      "TCT": {
+        "aminoAcid": "S",
+        "count": 541031,
+        "perThousand": 25.988108791806635,
+        "fraction": 0.2821015517824824
+      },
+      "TCC": {
+        "aminoAcid": "S",
+        "count": 226378,
+        "perThousand": 10.873935305133353,
+        "fraction": 0.11803683169617787
+      },
+      "TCA": {
+        "aminoAcid": "S",
+        "count": 408208,
+        "perThousand": 19.608033391221213,
+        "fraction": 0.21284567843621455
+      },
+      "TCG": {
+        "aminoAcid": "S",
+        "count": 184111,
+        "perThousand": 8.843664591804004,
+        "fraction": 0.09599819381925366
+      },
+      "TAT": {
+        "aminoAcid": "Y",
+        "count": 317433,
+        "perThousand": 15.247709166590372,
+        "fraction": 0.5444493040726543
+      },
+      "TAC": {
+        "aminoAcid": "Y",
+        "count": 265602,
+        "perThousand": 12.75803728681245,
+        "fraction": 0.4555506959273457
+      },
+      "TAA": {
+        "aminoAcid": "*",
+        "count": 8,
+        "perThousand": 0,
+        "fraction": 0
+      },
+      "TAG": {
+        "aminoAcid": "*",
+        "count": 10,
+        "perThousand": 0,
+        "fraction": 0
+      },
+      "TGT": {
+        "aminoAcid": "C",
+        "count": 227788,
+        "perThousand": 10.941663833436623,
+        "fraction": 0.5975064986845247
+      },
+      "TGC": {
+        "aminoAcid": "C",
+        "count": 153443,
+        "perThousand": 7.370545083999226,
+        "fraction": 0.4024935013154754
+      },
+      "TGA": {
+        "aminoAcid": "*",
+        "count": 13,
+        "perThousand": 0,
+        "fraction": 0
+      },
+      "TGG": {
+        "aminoAcid": "W",
+        "count": 254851,
+        "perThousand": 12.241619267104312,
+        "fraction": 1
+      },
+      "CTT": {
+        "aminoAcid": "L",
+        "count": 513926,
+        "perThousand": 24.68613591261502,
+        "fraction": 0.2584137347066431
+      },
+      "CTC": {
+        "aminoAcid": "L",
+        "count": 311181,
+        "perThousand": 14.947397990028632,
+        "fraction": 0.15646891649721537
+      },
+      "CTA": {
+        "aminoAcid": "L",
+        "count": 215183,
+        "perThousand": 10.336190004172268,
+        "fraction": 0.10819892878620575
+      },
+      "CTG": {
+        "aminoAcid": "L",
+        "count": 219097,
+        "perThousand": 10.524196713235394,
+        "fraction": 0.1101669774111864
+      },
+      "CCT": {
+        "aminoAcid": "P",
+        "count": 387073,
+        "perThousand": 18.59282598293068,
+        "fraction": 0.3897537261283105
+      },
+      "CCC": {
+        "aminoAcid": "P",
+        "count": 106543,
+        "perThousand": 5.117730915613808,
+        "fraction": 0.10728087787804519
+      },
+      "CCA": {
+        "aminoAcid": "P",
+        "count": 340903,
+        "perThousand": 16.37507693912781,
+        "fraction": 0.34326396958279043
+      },
+      "CCG": {
+        "aminoAcid": "P",
+        "count": 158603,
+        "perThousand": 7.618402676938859,
+        "fraction": 0.15970142641085386
+      },
+      "CAT": {
+        "aminoAcid": "H",
+        "count": 301039,
+        "perThousand": 14.460232930417439,
+        "fraction": 0.6342042505140392
+      },
+      "CAC": {
+        "aminoAcid": "H",
+        "count": 173633,
+        "perThousand": 8.340359968001392,
+        "fraction": 0.36579574948596083
+      },
+      "CAA": {
+        "aminoAcid": "Q",
+        "count": 421069,
+        "perThousand": 20.225804031298072,
+        "fraction": 0.5637381631038273
+      },
+      "CAG": {
+        "aminoAcid": "Q",
+        "count": 325854,
+        "perThousand": 15.652206994137785,
+        "fraction": 0.4362618368961727
+      },
+      "CGT": {
+        "aminoAcid": "R",
+        "count": 177366,
+        "perThousand": 8.519672447544735,
+        "fraction": 0.15749459230028806
+      },
+      "CGC": {
+        "aminoAcid": "R",
+        "count": 76739,
+        "perThousand": 3.68611314430125,
+        "fraction": 0.06814145618964065
+      },
+      "CGA": {
+        "aminoAcid": "R",
+        "count": 131933,
+        "perThousand": 6.337324769245061,
+        "fraction": 0.11715173170705719
+      },
+      "CGG": {
+        "aminoAcid": "R",
+        "count": 100303,
+        "perThousand": 4.817996152058904,
+        "fraction": 0.089065435830406
+      },
+      "ATT": {
+        "aminoAcid": "I",
+        "count": 457907,
+        "perThousand": 21.995295893451207,
+        "fraction": 0.41578468511987565
+      },
+      "ATC": {
+        "aminoAcid": "I",
+        "count": 358746,
+        "perThousand": 17.232155045876233,
+        "fraction": 0.32574538639508654
+      },
+      "ATA": {
+        "aminoAcid": "I",
+        "count": 284655,
+        "perThousand": 13.67323703841687,
+        "fraction": 0.2584699284850378
+      },
+      "ATG": {
+        "aminoAcid": "M",
+        "count": 509734,
+        "perThousand": 24.484775635560187,
+        "fraction": 1
+      },
+      "ACT": {
+        "aminoAcid": "T",
+        "count": 364052,
+        "perThousand": 17.48702566373237,
+        "fraction": 0.34554922139137734
+      },
+      "ACC": {
+        "aminoAcid": "T",
+        "count": 199366,
+        "perThousand": 9.576429626744718,
+        "fraction": 0.18923331302097868
+      },
+      "ACA": {
+        "aminoAcid": "T",
+        "count": 342390,
+        "perThousand": 16.44650411755828,
+        "fraction": 0.3249881827656315
+      },
+      "ACG": {
+        "aminoAcid": "T",
+        "count": 147738,
+        "perThousand": 7.096508733665776,
+        "fraction": 0.14022928282201252
+      },
+      "AAT": {
+        "aminoAcid": "N",
+        "count": 496328,
+        "perThousand": 23.840826238089505,
+        "fraction": 0.5423703624376986
+      },
+      "AAC": {
+        "aminoAcid": "N",
+        "count": 418781,
+        "perThousand": 20.115901284661277,
+        "fraction": 0.4576296375623013
+      },
+      "AAA": {
+        "aminoAcid": "K",
+        "count": 659698,
+        "perThousand": 31.688208981994105,
+        "fraction": 0.496047100931642
+      },
+      "AAG": {
+        "aminoAcid": "K",
+        "count": 670212,
+        "perThousand": 32.19324284481723,
+        "fraction": 0.503952899068358
+      },
+      "AGT": {
+        "aminoAcid": "S",
+        "count": 315715,
+        "perThousand": 15.1651860377783,
+        "fraction": 0.1646184625668519
+      },
+      "AGC": {
+        "aminoAcid": "S",
+        "count": 242416,
+        "perThousand": 11.644311288770139,
+        "fraction": 0.1263992816990196
+      },
+      "AGA": {
+        "aminoAcid": "R",
+        "count": 408597,
+        "perThousand": 19.626718779526158,
+        "fraction": 0.3628193561907062
+      },
+      "AGG": {
+        "aminoAcid": "R",
+        "count": 231234,
+        "perThousand": 11.10719043523313,
+        "fraction": 0.20532742778190188
+      },
+      "GTT": {
+        "aminoAcid": "V",
+        "count": 562212,
+        "perThousand": 27.005525783290036,
+        "fraction": 0.4072388750537831
+      },
+      "GTC": {
+        "aminoAcid": "V",
+        "count": 248364,
+        "perThousand": 11.930020002492025,
+        "fraction": 0.1799027341356246
+      },
+      "GTA": {
+        "aminoAcid": "V",
+        "count": 220378,
+        "perThousand": 10.585728801715174,
+        "fraction": 0.1596310445287589
+      },
+      "GTG": {
+        "aminoAcid": "V",
+        "count": 349592,
+        "perThousand": 16.792447990494566,
+        "fraction": 0.2532273462818334
+      },
+      "GCT": {
+        "aminoAcid": "A",
+        "count": 568078,
+        "perThousand": 27.28729567479854,
+        "fraction": 0.4340087813591319
+      },
+      "GCC": {
+        "aminoAcid": "A",
+        "count": 195403,
+        "perThousand": 9.386069231237013,
+        "fraction": 0.1492869252178723
+      },
+      "GCA": {
+        "aminoAcid": "A",
+        "count": 378037,
+        "perThousand": 18.158786988782907,
+        "fraction": 0.2888183976120571
+      },
+      "GCG": {
+        "aminoAcid": "A",
+        "count": 167391,
+        "perThousand": 8.040529135612015,
+        "fraction": 0.12788589581093873
+      },
+      "GAT": {
+        "aminoAcid": "D",
+        "count": 784820,
+        "perThousand": 37.6983713354423,
+        "fraction": 0.6940973161900618
+      },
+      "GAC": {
+        "aminoAcid": "D",
+        "count": 345886,
+        "perThousand": 16.614432440216603,
+        "fraction": 0.30590268380993824
+      },
+      "GAA": {
+        "aminoAcid": "E",
+        "count": 753510,
+        "perThousand": 36.194413731771775,
+        "fraction": 0.530345420262375
+      },
+      "GAG": {
+        "aminoAcid": "E",
+        "count": 667281,
+        "perThousand": 32.05245396789744,
+        "fraction": 0.46965457973762503
+      },
+      "GGT": {
+        "aminoAcid": "G",
+        "count": 442771,
+        "perThousand": 21.26824695416162,
+        "fraction": 0.3342704793713371
+      },
+      "GGC": {
+        "aminoAcid": "G",
+        "count": 183075,
+        "perThousand": 8.793900935547132,
+        "fraction": 0.13821268333045195
+      },
+      "GGA": {
+        "aminoAcid": "G",
+        "count": 486994,
+        "perThousand": 23.392472987605295,
+        "fraction": 0.36765668445079946
+      },
+      "GGG": {
+        "aminoAcid": "G",
+        "count": 211749,
+        "perThousand": 10.171239815382599,
+        "fraction": 0.15986015284741154
+      }
+    }
+  },
+  {
+    "id": "zebrafish-grcz11-refseq-cds",
+    "name": "Zebrafish GRCz11 RefSeq CDS",
+    "organism": "Danio rerio",
+    "taxonomyId": "7955",
+    "geneticCode": {
+      "id": "1",
+      "name": "Standard"
+    },
+    "units": {
+      "count": "observed codon count",
+      "perThousand": "codons per 1000 counted sense codons",
+      "fraction": "fraction within synonymous amino-acid family"
+    },
+    "totals": {
+      "senseCodons": 40694271,
+      "stopCodons": 569
+    },
+    "source": {
+      "name": "NCBI RefSeq assembly CDS FASTA",
+      "version": "GCF_000002035.6_GRCz11",
+      "accessDate": "2026-05-02",
+      "url": "https://www.ncbi.nlm.nih.gov/datasets/genome/GCF_000002035.6/",
+      "citation": "Howe K et al. The zebrafish reference genome sequence and its relationship to the human genome. Nature. 2013;496(7446):498-503.",
+      "license": "Generated from NCBI RefSeq GenBank record(s) GCF_000002035.6. Check NCBI and source-record terms before redistributing outside this project."
+    },
+    "description": "Codon usage generated from NCBI RefSeq GRCz11 CDS FASTA records. This reference counts CDS FASTA entries and may include multiple transcript isoforms.",
+    "assumptions": [
+      "Uses NCBI transl_table 1 codon assignments from the SMS3 genetic-code reference.",
+      "Counts annotated CDS features only.",
+      "Skips pseudo/pseudogene CDS features, partial locations, unsupported locations, invalid codons, and out-of-frame CDS features.",
+      "Skips CDS features with translation exceptions, such as selenocysteine recoding, until those rules are modeled explicitly.",
+      "Excludes terminal stop codons from sense codon counts.",
+      "Overlapping CDS features are counted independently because they are separate annotated coding features."
+    ],
+    "buildStats": {
+      "counts": {
+        "TTT": 662262,
+        "TTC": 736887,
+        "TTA": 285674,
+        "TTG": 494365,
+        "TCT": 779012,
+        "TCC": 653957,
+        "TCA": 662434,
+        "TCG": 214723,
+        "TAT": 458862,
+        "TAC": 602819,
+        "TAA": 109,
+        "TAG": 78,
+        "TGT": 457136,
+        "TGC": 408682,
+        "TGA": 382,
+        "TGG": 418987,
+        "CTT": 535458,
+        "CTC": 675211,
+        "CTA": 279841,
+        "CTG": 1471125,
+        "CCT": 768870,
+        "CCC": 537334,
+        "CCA": 741351,
+        "CCG": 298958,
+        "CAT": 470095,
+        "CAC": 615431,
+        "CAA": 577726,
+        "CAG": 1430202,
+        "CGT": 277255,
+        "CGC": 371043,
+        "CGA": 275607,
+        "CGG": 262747,
+        "ATT": 632062,
+        "ATC": 881454,
+        "ATA": 312692,
+        "ATG": 955389,
+        "ACT": 645773,
+        "ACC": 654165,
+        "ACA": 778728,
+        "ACG": 278427,
+        "AAT": 682133,
+        "AAC": 934016,
+        "AAA": 1237120,
+        "AAG": 1221029,
+        "AGT": 629832,
+        "AGC": 790656,
+        "AGA": 632467,
+        "AGG": 436858,
+        "GTT": 557764,
+        "GTC": 576020,
+        "GTA": 285550,
+        "GTG": 1069656,
+        "GCT": 839010,
+        "GCC": 747736,
+        "GCA": 695376,
+        "GCG": 282312,
+        "GAT": 1055856,
+        "GAC": 1103214,
+        "GAA": 1112269,
+        "GAG": 1814504,
+        "GGT": 532692,
+        "GGC": 645865,
+        "GGA": 846931,
+        "GGG": 402661
+      },
+      "genomeLength": 123378397,
+      "cdsCount": 58095,
+      "countedCds": 57508,
+      "terminalStopCodons": 57165,
+      "skipped": {
+        "nonCds": 0,
+        "pseudo": 0,
+        "partial": 0,
+        "differentGeneticCode": 0,
+        "translationException": 0,
+        "invalidLocation": 0,
+        "invalidCodon": 23,
+        "shortOrOutOfFrame": 564
+      }
+    },
+    "codons": {
+      "TTT": {
+        "aminoAcid": "F",
+        "count": 662262,
+        "perThousand": 16.27408437910093,
+        "fraction": 0.47333200395383196
+      },
+      "TTC": {
+        "aminoAcid": "F",
+        "count": 736887,
+        "perThousand": 18.107880590857615,
+        "fraction": 0.5266679960461681
+      },
+      "TTA": {
+        "aminoAcid": "L",
+        "count": 285674,
+        "perThousand": 7.020005346698556,
+        "fraction": 0.07634924902597073
+      },
+      "TTG": {
+        "aminoAcid": "L",
+        "count": 494365,
+        "perThousand": 12.148270207371452,
+        "fraction": 0.1321240172179618
+      },
+      "TCT": {
+        "aminoAcid": "S",
+        "count": 779012,
+        "perThousand": 19.143038586438863,
+        "fraction": 0.20881602867517252
+      },
+      "TCC": {
+        "aminoAcid": "S",
+        "count": 653957,
+        "perThousand": 16.070001598013636,
+        "fraction": 0.1752947370057583
+      },
+      "TCA": {
+        "aminoAcid": "S",
+        "count": 662434,
+        "perThousand": 16.278311018275765,
+        "fraction": 0.17756701711836176
+      },
+      "TCG": {
+        "aminoAcid": "S",
+        "count": 214723,
+        "perThousand": 5.276492113595056,
+        "fraction": 0.05755701340315562
+      },
+      "TAT": {
+        "aminoAcid": "Y",
+        "count": 458862,
+        "perThousand": 11.275837820021398,
+        "fraction": 0.4322032700971384
+      },
+      "TAC": {
+        "aminoAcid": "Y",
+        "count": 602819,
+        "perThousand": 14.81336279497426,
+        "fraction": 0.5677967299028616
+      },
+      "TAA": {
+        "aminoAcid": "*",
+        "count": 109,
+        "perThousand": 0,
+        "fraction": 0
+      },
+      "TAG": {
+        "aminoAcid": "*",
+        "count": 78,
+        "perThousand": 0,
+        "fraction": 0
+      },
+      "TGT": {
+        "aminoAcid": "C",
+        "count": 457136,
+        "perThousand": 11.233423987371589,
+        "fraction": 0.5279816312435177
+      },
+      "TGC": {
+        "aminoAcid": "C",
+        "count": 408682,
+        "perThousand": 10.042740414246516,
+        "fraction": 0.4720183687564823
+      },
+      "TGA": {
+        "aminoAcid": "*",
+        "count": 382,
+        "perThousand": 0,
+        "fraction": 0
+      },
+      "TGG": {
+        "aminoAcid": "W",
+        "count": 418987,
+        "perThousand": 10.29597016248307,
+        "fraction": 1
+      },
+      "CTT": {
+        "aminoAcid": "L",
+        "count": 535458,
+        "perThousand": 13.158068367903677,
+        "fraction": 0.1431065346687071
+      },
+      "CTC": {
+        "aminoAcid": "L",
+        "count": 675211,
+        "perThousand": 16.592286417908802,
+        "fraction": 0.18045692917127468
+      },
+      "CTA": {
+        "aminoAcid": "L",
+        "count": 279841,
+        "perThousand": 6.8766682170077456,
+        "fraction": 0.0747903211236468
+      },
+      "CTG": {
+        "aminoAcid": "L",
+        "count": 1471125,
+        "perThousand": 36.15066602372604,
+        "fraction": 0.3931729487924389
+      },
+      "CCT": {
+        "aminoAcid": "P",
+        "count": 768870,
+        "perThousand": 18.893814316024976,
+        "fraction": 0.327664922376309
+      },
+      "CCC": {
+        "aminoAcid": "P",
+        "count": 537334,
+        "perThousand": 13.204168223089683,
+        "fraction": 0.2289925519270509
+      },
+      "CCA": {
+        "aminoAcid": "P",
+        "count": 741351,
+        "perThousand": 18.21757662153476,
+        "fraction": 0.31593730782654944
+      },
+      "CCG": {
+        "aminoAcid": "P",
+        "count": 298958,
+        "perThousand": 7.3464395025039275,
+        "fraction": 0.12740521787009065
+      },
+      "CAT": {
+        "aminoAcid": "H",
+        "count": 470095,
+        "perThousand": 11.551871761015205,
+        "fraction": 0.43305733810152863
+      },
+      "CAC": {
+        "aminoAcid": "H",
+        "count": 615431,
+        "perThousand": 15.123283569817481,
+        "fraction": 0.5669426618984713
+      },
+      "CAA": {
+        "aminoAcid": "Q",
+        "count": 577726,
+        "perThousand": 14.196740371636096,
+        "fraction": 0.2877224681363077
+      },
+      "CAG": {
+        "aminoAcid": "Q",
+        "count": 1430202,
+        "perThousand": 35.1450453554015,
+        "fraction": 0.7122775318636924
+      },
+      "CGT": {
+        "aminoAcid": "R",
+        "count": 277255,
+        "perThousand": 6.813121188483755,
+        "fraction": 0.12289797280734688
+      },
+      "CGC": {
+        "aminoAcid": "R",
+        "count": 371043,
+        "perThousand": 9.117819065981056,
+        "fraction": 0.16447109168222904
+      },
+      "CGA": {
+        "aminoAcid": "R",
+        "count": 275607,
+        "perThousand": 6.772624087552766,
+        "fraction": 0.122167468905933
+      },
+      "CGG": {
+        "aminoAcid": "R",
+        "count": 262747,
+        "perThousand": 6.456609088783038,
+        "fraction": 0.11646705618009404
+      },
+      "ATT": {
+        "aminoAcid": "I",
+        "count": 632062,
+        "perThousand": 15.531965175147137,
+        "fraction": 0.34610624857628486
+      },
+      "ATC": {
+        "aminoAcid": "I",
+        "count": 881454,
+        "perThousand": 21.660395390791003,
+        "fraction": 0.4826690059401777
+      },
+      "ATA": {
+        "aminoAcid": "I",
+        "count": 312692,
+        "perThousand": 7.683931725917882,
+        "fraction": 0.17122474548353747
+      },
+      "ATG": {
+        "aminoAcid": "M",
+        "count": 955389,
+        "perThousand": 23.477235898881197,
+        "fraction": 1
+      },
+      "ACT": {
+        "aminoAcid": "T",
+        "count": 645773,
+        "perThousand": 15.868892208438872,
+        "fraction": 0.2739700979129801
+      },
+      "ACC": {
+        "aminoAcid": "T",
+        "count": 654165,
+        "perThousand": 16.07511288259716,
+        "fraction": 0.2775304156433369
+      },
+      "ACA": {
+        "aminoAcid": "T",
+        "count": 778728,
+        "perThousand": 19.13605971710367,
+        "fraction": 0.330376442507784
+      },
+      "ACG": {
+        "aminoAcid": "T",
+        "count": 278427,
+        "perThousand": 6.84192131123322,
+        "fraction": 0.11812304393589901
+      },
+      "AAT": {
+        "aminoAcid": "N",
+        "count": 682133,
+        "perThousand": 16.76238407121238,
+        "fraction": 0.42207308855804754
+      },
+      "AAC": {
+        "aminoAcid": "N",
+        "count": 934016,
+        "perThousand": 22.95202683444065,
+        "fraction": 0.5779269114419524
+      },
+      "AAA": {
+        "aminoAcid": "K",
+        "count": 1237120,
+        "perThousand": 30.40034799984499,
+        "fraction": 0.5032729911815761
+      },
+      "AAG": {
+        "aminoAcid": "K",
+        "count": 1221029,
+        "perThousand": 30.004936075645634,
+        "fraction": 0.49672700881842397
+      },
+      "AGT": {
+        "aminoAcid": "S",
+        "count": 629832,
+        "perThousand": 15.477166306775713,
+        "fraction": 0.16882797308968442
+      },
+      "AGC": {
+        "aminoAcid": "S",
+        "count": 790656,
+        "perThousand": 19.42917222918184,
+        "fraction": 0.21193723070786738
+      },
+      "AGA": {
+        "aminoAcid": "R",
+        "count": 632467,
+        "perThousand": 15.541917435994861,
+        "fraction": 0.2803517057133118
+      },
+      "AGG": {
+        "aminoAcid": "R",
+        "count": 436858,
+        "perThousand": 10.735122887445263,
+        "fraction": 0.19364470471108527
+      },
+      "GTT": {
+        "aminoAcid": "V",
+        "count": 557764,
+        "perThousand": 13.706204492519353,
+        "fraction": 0.22409250338490713
+      },
+      "GTC": {
+        "aminoAcid": "V",
+        "count": 576020,
+        "perThousand": 14.154818008657779,
+        "fraction": 0.23142720541263725
+      },
+      "GTA": {
+        "aminoAcid": "V",
+        "count": 285550,
+        "perThousand": 7.016958234735303,
+        "fraction": 0.11472525000100442
+      },
+      "GTG": {
+        "aminoAcid": "V",
+        "count": 1069656,
+        "perThousand": 26.285174146503326,
+        "fraction": 0.4297550412014512
+      },
+      "GCT": {
+        "aminoAcid": "A",
+        "count": 839010,
+        "perThousand": 20.617398453949452,
+        "fraction": 0.32717160979771753
+      },
+      "GCC": {
+        "aminoAcid": "A",
+        "count": 747736,
+        "perThousand": 18.374478314158768,
+        "fraction": 0.2915793504531604
+      },
+      "GCA": {
+        "aminoAcid": "A",
+        "count": 695376,
+        "perThousand": 17.087810714191193,
+        "fraction": 0.2711615896529215
+      },
+      "GCG": {
+        "aminoAcid": "A",
+        "count": 282312,
+        "perThousand": 6.937389294920654,
+        "fraction": 0.11008745009620056
+      },
+      "GAT": {
+        "aminoAcid": "D",
+        "count": 1055856,
+        "perThousand": 25.946060073173445,
+        "fraction": 0.4890327780016396
+      },
+      "GAC": {
+        "aminoAcid": "D",
+        "count": 1103214,
+        "perThousand": 27.109811108300722,
+        "fraction": 0.5109672219983604
+      },
+      "GAA": {
+        "aminoAcid": "E",
+        "count": 1112269,
+        "perThousand": 27.33232400206899,
+        "fraction": 0.380032547792398
+      },
+      "GAG": {
+        "aminoAcid": "E",
+        "count": 1814504,
+        "perThousand": 44.588684240098566,
+        "fraction": 0.6199674522076021
+      },
+      "GGT": {
+        "aminoAcid": "G",
+        "count": 532692,
+        "perThousand": 13.090098112336255,
+        "fraction": 0.2193819242558838
+      },
+      "GGC": {
+        "aminoAcid": "G",
+        "count": 645865,
+        "perThousand": 15.87115296892774,
+        "fraction": 0.26599067849625374
+      },
+      "GGA": {
+        "aminoAcid": "G",
+        "count": 846931,
+        "perThousand": 20.81204501734409,
+        "fraction": 0.3487969642719619
+      },
+      "GGG": {
+        "aminoAcid": "G",
+        "count": 402661,
+        "perThousand": 9.894783469643675,
+        "fraction": 0.16583043297590058
+      }
+    }
   }
 ];

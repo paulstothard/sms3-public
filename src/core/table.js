@@ -238,10 +238,65 @@ export function findColumn(columns, name) {
 }
 
 export function parseColumnList(value) {
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => String(item ?? "").trim())
+      .filter(Boolean);
+  }
   return String(value ?? "")
     .split(",")
     .map((item) => item.trim())
     .filter(Boolean);
+}
+
+function splitRuleLine(line) {
+  if (line.includes("|")) {
+    return line.split("|").map((part) => part.trim());
+  }
+  return line.split(",").map((part) => part.trim());
+}
+
+export function parseTableFilterRules(value) {
+  return String(value ?? "")
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line && !line.startsWith("#"))
+    .map((line) => {
+      const [column = "", operator = "", ...rest] = splitRuleLine(line);
+      return {
+        column,
+        operator: operator || "contains",
+        value: rest.join("|").trim()
+      };
+    });
+}
+
+export function parseTableSortRules(value) {
+  return String(value ?? "")
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line && !line.startsWith("#"))
+    .map((line) => {
+      const [column = "", direction = "asc"] = splitRuleLine(line);
+      return {
+        column,
+        direction: String(direction || "asc").toLowerCase() === "desc" ? "desc" : "asc"
+      };
+    });
+}
+
+export function parseTableColumnFilterRules(value) {
+  return String(value ?? "")
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line && !line.startsWith("#"))
+    .map((line) => {
+      const [operator = "", ...rest] = splitRuleLine(line);
+      return {
+        operator: operator || "contains",
+        value: rest.join("|").trim()
+      };
+    });
 }
 
 function compareValues(left, right, type) {
@@ -255,70 +310,310 @@ function compareValues(left, right, type) {
   return String(left ?? "").localeCompare(String(right ?? ""), undefined, { numeric: true });
 }
 
+function normalizeCellValue(value, options = {}) {
+  let text = String(value ?? "");
+  if (options.trimWhitespace !== false) {
+    text = text.trim();
+  }
+  if (options.collapseWhitespace === true) {
+    text = text.replace(/\s+/g, " ");
+  }
+  return text;
+}
+
+function makeMissingValueSet(value) {
+  return new Set(
+    String(value ?? "")
+      .split(",")
+      .map((item) => item.trim().toLowerCase())
+      .filter(Boolean)
+  );
+}
+
+function normalizeRows(columns, rows, options = {}) {
+  const missingValues = makeMissingValueSet(options.missingValues ?? "");
+  const standardizeMissing = options.standardizeMissing === true;
+  let normalizedCells = 0;
+  let missingValuesStandardized = 0;
+  const normalizedRows = rows.map((row) => {
+    const normalizedRow = {};
+    for (const column of columns) {
+      const original = row[column.id] ?? "";
+      let value = normalizeCellValue(original, options);
+      if (standardizeMissing && missingValues.has(value.toLowerCase())) {
+        value = "";
+        missingValuesStandardized += 1;
+      }
+      if (value !== String(original ?? "")) {
+        normalizedCells += 1;
+      }
+      normalizedRow[column.id] = value;
+    }
+    return normalizedRow;
+  });
+  return { rows: normalizedRows, normalizedCells, missingValuesStandardized };
+}
+
+function filterRow(row, column, operator, filterValue) {
+  const cell = String(row[column.id] ?? "");
+  const cellNumber = Number(cell);
+  const filterNumber = Number(filterValue);
+  if (operator === "contains") {
+    return cell.toLowerCase().includes(filterValue.toLowerCase());
+  }
+  if (operator === "not_contains") {
+    return !cell.toLowerCase().includes(filterValue.toLowerCase());
+  }
+  if (operator === "equals") {
+    return cell === filterValue;
+  }
+  if (operator === "not_equals") {
+    return cell !== filterValue;
+  }
+  if (operator === "not_empty") {
+    return cell.trim() !== "";
+  }
+  if (operator === "empty") {
+    return cell.trim() === "";
+  }
+  if (!Number.isFinite(cellNumber) || !Number.isFinite(filterNumber)) {
+    return false;
+  }
+  if (operator === "gt") {
+    return cellNumber > filterNumber;
+  }
+  if (operator === "gte") {
+    return cellNumber >= filterNumber;
+  }
+  if (operator === "lt") {
+    return cellNumber < filterNumber;
+  }
+  if (operator === "lte") {
+    return cellNumber <= filterNumber;
+  }
+  return true;
+}
+
+const FILTER_OPERATORS = new Set([
+  "contains",
+  "not_contains",
+  "equals",
+  "not_equals",
+  "not_empty",
+  "empty",
+  "gt",
+  "gte",
+  "lt",
+  "lte"
+]);
+
+const COLUMN_FILTER_OPERATORS = new Set([
+  "contains",
+  "not_contains",
+  "equals",
+  "not_equals",
+  "starts_with",
+  "ends_with"
+]);
+
+function applyFilterRule(rows, columns, rule, warnings) {
+  if ((rule.operator ?? "none") === "none") {
+    return rows;
+  }
+  if (!FILTER_OPERATORS.has(rule.operator)) {
+    warnings.push(makeWarning(`Filter rule "${rule.operator ?? ""}" is not supported.`));
+    return rows;
+  }
+  const filterColumn = findColumn(columns, rule.column);
+  if (!filterColumn) {
+    warnings.push(makeWarning(`Filter column "${rule.column ?? ""}" was not found.`));
+    return rows;
+  }
+  const filterValue = String(rule.value ?? "");
+  const before = rows.length;
+  const filteredRows = rows.filter((row) => filterRow(row, filterColumn, rule.operator, filterValue));
+  return Object.assign(filteredRows, { removedCount: before - filteredRows.length });
+}
+
+function removeEmptyRows(columns, rows) {
+  const before = rows.length;
+  const filteredRows = rows.filter((row) =>
+    columns.some((column) => String(row[column.id] ?? "").trim() !== "")
+  );
+  return { rows: filteredRows, removedCount: before - filteredRows.length };
+}
+
+function removeEmptyColumns(columns, rows) {
+  const keptColumns = columns.filter((column) =>
+    rows.some((row) => String(row[column.id] ?? "").trim() !== "")
+  );
+  if (keptColumns.length === 0) {
+    return { columns, rows, removedCount: 0, ignored: columns.length > 0 };
+  }
+  const keptIds = new Set(keptColumns.map((column) => column.id));
+  return {
+    columns: keptColumns,
+    rows: rows.map((row) => Object.fromEntries(columns.filter((column) => keptIds.has(column.id)).map((column) => [column.id, row[column.id] ?? ""]))),
+    removedCount: columns.length - keptColumns.length,
+    ignored: false
+  };
+}
+
+function columnMatchesRule(column, rule) {
+  const query = String(rule.value ?? "").trim().toLowerCase();
+  if (!query) {
+    return true;
+  }
+  const candidates = [column.label, column.id].map((value) => String(value ?? "").toLowerCase());
+  if (rule.operator === "contains") {
+    return candidates.some((value) => value.includes(query));
+  }
+  if (rule.operator === "not_contains") {
+    return candidates.every((value) => !value.includes(query));
+  }
+  if (rule.operator === "equals") {
+    return candidates.some((value) => value === query);
+  }
+  if (rule.operator === "not_equals") {
+    return candidates.every((value) => value !== query);
+  }
+  if (rule.operator === "starts_with") {
+    return candidates.some((value) => value.startsWith(query));
+  }
+  if (rule.operator === "ends_with") {
+    return candidates.some((value) => value.endsWith(query));
+  }
+  return true;
+}
+
+function filterColumnsByRules(columns, rows, rules, action, warnings) {
+  const validRules = [];
+  for (const rule of rules) {
+    if (!COLUMN_FILTER_OPERATORS.has(rule.operator)) {
+      warnings.push(makeWarning(`Column filter rule "${rule.operator ?? ""}" is not supported.`));
+    } else {
+      validRules.push(rule);
+    }
+  }
+  if (validRules.length === 0 || action === "all") {
+    return { columns, rows, removedCount: 0 };
+  }
+  const matchedIds = new Set(
+    columns
+      .filter((column) => validRules.every((rule) => columnMatchesRule(column, rule)))
+      .map((column) => column.id)
+  );
+  const keptColumns = action === "remove"
+    ? columns.filter((column) => !matchedIds.has(column.id))
+    : columns.filter((column) => matchedIds.has(column.id));
+  if (keptColumns.length === 0) {
+    warnings.push(makeWarning("Column filtering was ignored because it would remove every column."));
+    return { columns, rows, removedCount: 0 };
+  }
+  return {
+    columns: keptColumns,
+    rows: rows.map((row) => Object.fromEntries(keptColumns.map((column) => [column.id, row[column.id] ?? ""]))),
+    removedCount: columns.length - keptColumns.length
+  };
+}
+
+function sortRowsByRules(columns, rows, rules, warnings) {
+  const sortRules = [];
+  for (const rule of rules) {
+    const column = findColumn(columns, rule.column);
+    if (!column) {
+      warnings.push(makeWarning(`Sort column "${rule.column ?? ""}" was not found.`));
+    } else {
+      sortRules.push({ column, direction: rule.direction === "desc" ? "desc" : "asc" });
+    }
+  }
+  if (sortRules.length === 0) {
+    return rows;
+  }
+  return [...rows].sort((left, right) => {
+    for (const rule of sortRules) {
+      const comparison = compareValues(left[rule.column.id], right[rule.column.id], rule.column.type);
+      if (comparison !== 0) {
+        return rule.direction === "desc" ? -comparison : comparison;
+      }
+    }
+    return 0;
+  });
+}
+
 export function applyTableOperations(table, options = {}) {
   const warnings = [];
   let columns = table.columns.map((column) => ({ ...column }));
   let rows = table.rows.map((row) => ({ ...row }));
+  const stats = {
+    inputRows: rows.length,
+    inputColumns: columns.length,
+    normalizedCells: 0,
+    missingValuesStandardized: 0,
+    emptyRowsRemoved: 0,
+    emptyColumnsRemoved: 0,
+    rowsRemovedByFilters: 0,
+    columnsRemovedByFilters: 0,
+    duplicateRowsRemoved: 0,
+    outputRows: 0,
+    outputColumns: 0
+  };
 
-  const filterColumn = findColumn(columns, options.filterColumn);
+  const normalized = normalizeRows(columns, rows, options);
+  rows = normalized.rows;
+  stats.normalizedCells = normalized.normalizedCells;
+  stats.missingValuesStandardized = normalized.missingValuesStandardized;
+
   const filterOperator = options.filterOperator ?? "none";
+  const filterRules = [];
   if (filterOperator !== "none") {
-    if (!filterColumn) {
-      warnings.push(makeWarning(`Filter column "${options.filterColumn ?? ""}" was not found.`));
-    } else {
-      const filterValue = String(options.filterValue ?? "");
-      const filterNumber = Number(filterValue);
-      rows = rows.filter((row) => {
-        const cell = String(row[filterColumn.id] ?? "");
-        const cellNumber = Number(cell);
-        if (filterOperator === "contains") {
-          return cell.toLowerCase().includes(filterValue.toLowerCase());
-        }
-        if (filterOperator === "equals") {
-          return cell === filterValue;
-        }
-        if (filterOperator === "not_empty") {
-          return cell.trim() !== "";
-        }
-        if (filterOperator === "empty") {
-          return cell.trim() === "";
-        }
-        if (!Number.isFinite(cellNumber) || !Number.isFinite(filterNumber)) {
-          return false;
-        }
-        if (filterOperator === "gt") {
-          return cellNumber > filterNumber;
-        }
-        if (filterOperator === "gte") {
-          return cellNumber >= filterNumber;
-        }
-        if (filterOperator === "lt") {
-          return cellNumber < filterNumber;
-        }
-        if (filterOperator === "lte") {
-          return cellNumber <= filterNumber;
-        }
-        return true;
-      });
-    }
+    filterRules.push({
+      column: options.filterColumn,
+      operator: filterOperator,
+      value: String(options.filterValue ?? "")
+    });
+  }
+  filterRules.push(...parseTableFilterRules(options.filterRules));
+  for (const rule of filterRules) {
+    const filteredRows = applyFilterRule(rows, columns, rule, warnings);
+    stats.rowsRemovedByFilters += filteredRows.removedCount ?? 0;
+    rows = filteredRows;
   }
 
-  const sortColumn = findColumn(columns, options.sortColumn);
   const sortDirection = options.sortDirection ?? "none";
+  const sortRules = [];
   if (sortDirection !== "none") {
-    if (!sortColumn) {
-      warnings.push(makeWarning(`Sort column "${options.sortColumn ?? ""}" was not found.`));
-    } else {
-      rows = [...rows].sort((left, right) => {
-        const comparison = compareValues(left[sortColumn.id], right[sortColumn.id], sortColumn.type);
-        return sortDirection === "desc" ? -comparison : comparison;
-      });
-    }
+    sortRules.push({ column: options.sortColumn, direction: sortDirection });
+  }
+  sortRules.push(...parseTableSortRules(options.sortRules));
+
+  if (options.removeDuplicates === true) {
+    const before = rows.length;
+    const seen = new Set();
+    rows = rows.filter((row) => {
+      const key = JSON.stringify(columns.map((column) => row[column.id] ?? ""));
+      if (seen.has(key)) {
+        return false;
+      }
+      seen.add(key);
+      return true;
+    });
+    stats.duplicateRowsRemoved = before - rows.length;
   }
 
-  const columnAction = options.columnAction ?? (options.selectedColumns ? "keep" : "all");
+  rows = sortRowsByRules(columns, rows, sortRules, warnings);
+
+  const columnAction = options.columnFilterAction ?? options.columnAction ?? (options.selectedColumns ? "keep" : "all");
+  const columnFilterRules = parseTableColumnFilterRules(options.columnFilterRules);
+  if (columnFilterRules.length > 0) {
+    const columnFilterResult = filterColumnsByRules(columns, rows, columnFilterRules, columnAction, warnings);
+    columns = columnFilterResult.columns;
+    rows = columnFilterResult.rows;
+    stats.columnsRemovedByFilters = columnFilterResult.removedCount;
+  }
+
   const selectedNames = parseColumnList(options.columnList ?? options.selectedColumns);
-  if (columnAction === "keep" && selectedNames.length > 0) {
+  if (columnFilterRules.length === 0 && columnAction === "keep" && selectedNames.length > 0) {
     const selectedColumns = [];
     for (const name of selectedNames) {
       const column = findColumn(columns, name);
@@ -332,7 +627,7 @@ export function applyTableOperations(table, options = {}) {
       columns = selectedColumns;
       rows = rows.map((row) => Object.fromEntries(columns.map((column) => [column.id, row[column.id] ?? ""])));
     }
-  } else if (columnAction === "remove" && selectedNames.length > 0) {
+  } else if (columnFilterRules.length === 0 && columnAction === "remove" && selectedNames.length > 0) {
     const removeColumns = new Set();
     for (const name of selectedNames) {
       const column = findColumn(columns, name);
@@ -351,19 +646,27 @@ export function applyTableOperations(table, options = {}) {
     }
   }
 
-  if (options.removeDuplicates === true) {
-    const seen = new Set();
-    rows = rows.filter((row) => {
-      const key = JSON.stringify(columns.map((column) => row[column.id] ?? ""));
-      if (seen.has(key)) {
-        return false;
-      }
-      seen.add(key);
-      return true;
-    });
+  if (options.removeEmptyRows === true) {
+    const emptyRowResult = removeEmptyRows(columns, rows);
+    rows = emptyRowResult.rows;
+    stats.emptyRowsRemoved = emptyRowResult.removedCount;
   }
 
-  return { columns, rows, warnings };
+  if (options.removeEmptyColumns === true) {
+    const emptyColumnResult = removeEmptyColumns(columns, rows);
+    if (emptyColumnResult.ignored) {
+      warnings.push(makeWarning("Empty-column removal was ignored because it would remove every column."));
+    } else {
+      columns = emptyColumnResult.columns;
+      rows = emptyColumnResult.rows;
+      stats.emptyColumnsRemoved = emptyColumnResult.removedCount;
+    }
+  }
+
+  stats.outputRows = rows.length;
+  stats.outputColumns = columns.length;
+
+  return { columns, rows, warnings, stats };
 }
 
 function escapeDelimitedValue(value, delimiter) {

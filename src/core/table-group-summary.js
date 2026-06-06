@@ -7,6 +7,7 @@ import {
 
 const DEFAULT_OPERATIONS = ["count", "mean", "median", "min", "max", "sd"];
 const SUPPORTED_OPERATIONS = new Set(["count", "sum", "mean", "median", "min", "max", "sd", "distinct"]);
+const NUMERIC_OPERATIONS = new Set(["sum", "mean", "median", "min", "max", "sd"]);
 
 function coerceTableInput(input, options = {}) {
   if (input?.kind === "table" && Array.isArray(input.columns) && Array.isArray(input.rows)) {
@@ -158,6 +159,7 @@ export function summarizeTableGroups(input, options = {}) {
   const operationResult = normalizeOperations(options.operations);
   warnings.push(...operationResult.warnings);
   const operations = operationResult.operations;
+  const usesNumericOperations = operations.some((operation) => NUMERIC_OPERATIONS.has(operation));
 
   if (parsed.columns.length === 0) {
     return {
@@ -182,6 +184,20 @@ export function summarizeTableGroups(input, options = {}) {
   }
   if (groupColumns.length === 0) {
     groups.set("[]", { keyValues: [], rows: parsed.rows });
+  }
+
+  if (usesNumericOperations) {
+    for (const valueColumn of valueColumns) {
+      const badCount = parsed.rows
+        .map((row) => normalizeCell(row[valueColumn.id], trimCells))
+        .filter((value) => !isMissingValue(value, missingSet, false))
+        .filter((value) => !Number.isFinite(Number(value))).length;
+      if (badCount > 0) {
+        warnings.push(
+          `Value column "${valueColumn.label}" has ${badCount} non-missing nonnumeric value(s); numeric operations ignore them.`
+        );
+      }
+    }
   }
 
   const usedIds = new Set();

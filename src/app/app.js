@@ -1,17 +1,106 @@
 import { tools } from "../tools/registry.js";
+import { compareToolCategories } from "../tools/categories.js";
 import { ToolWorkerClient } from "./worker-client.js";
-import { geneticCodes, getCodonsForCode } from "../core/genetic-code.js";
+import { describeStream } from "./workflow-stream-labels.js";
+import {
+  createTabbedInputWorkflowTabs,
+  updateTabbedInputWorkflowTabs
+} from "./tabbed-input-workflow.js";
+import {
+  makeAminoAcidNames,
+  makeReferenceTopics
+} from "./reference-page-data.js";
+import { createReferencePageController } from "./reference-page-ui.js";
+import { createWorkspaceViewController } from "./workspace-view-ui.js";
+import { createWorkspaceInputSourceController } from "./workspace-input-source-ui.js";
+import {
+  getResultWorkspaceFeatureLayerDrafts,
+  getResultWorkspaceSequenceDrafts,
+  getResultWorkspaceSequenceLayerGroups,
+  getWorkflowWorkspaceFeatureLayerDrafts,
+  getWorkflowWorkspaceSequenceDrafts,
+  getWorkflowWorkspaceSequenceLayerGroups
+} from "./workspace-promotion.js";
+import {
+  listWorkspaceFeatureLayers,
+  listWorkspaceSequences,
+  saveWorkspaceFeatureLayer,
+  saveWorkspaceSequence
+} from "./workspace-storage.js";
+import {
+  buildOutputDescriptionText,
+  sha256Hex
+} from "./output-description.js";
+import { renderCircularDnaViewer } from "./dna-circular-viewer-canvas.js";
+import { renderDnaViewer } from "./dna-viewer-canvas.js";
+import { renderProteinViewer } from "./protein-viewer-canvas.js";
+import { renderGenomeFigure } from "./genome-figure-svg.js";
+import { renderProteinStructureViewer } from "./protein-structure-viewer.js";
+import { renderSangerTraceViewer } from "./sanger-trace-viewer.js";
+import { createSangerTraceWorkspaceController } from "./sanger-trace-workspace-ui.js";
+import { downloadBlob, downloadText } from "./file-download.js";
+import { readToolInputFileText } from "./input-file-readers.js";
+import { downloadSvgAsPng, getPngFilename, serializeSvgElement } from "./svg-export.js";
+import {
+  alignTsv,
+  getBaseMimeType,
+  isDelimitedDownload,
+  tableRowsToCsv,
+  tableRowsToTsv
+} from "./table-output-format.js";
+import {
+  findLiteralMatches,
+  getNextSearchIndex,
+  getOutputHighlightModel,
+  getOutputSearchCountText
+} from "./output-search.js";
+import {
+  getColumnPresetDefinitions,
+  getHiddenColumnsForPreset,
+  getTableActionScopeText,
+  getTableViewData as buildTableViewData,
+  getVisibleTableColumns as getVisibleColumnsForTable
+} from "./table-output-view-model.js";
+import {
+  chooseSuggestedColumnForOption,
+  getTableColumnSuggestionsFromTexts,
+  optionCurrentValueMatchesSuggestion
+} from "./table-column-suggestions.js";
+import {
+  summarizeSamReferencesFromText,
+  summarizeVcfFromText
+} from "./indexed-input-summaries.js";
+import { createIndexedInputPanelsController } from "./indexed-input-panels-ui.js";
+import { createAppLayoutController } from "./app-layout-ui.js";
+import { createOutputShellController } from "./output-shell-ui.js";
+import { createToolInputShellController } from "./tool-input-shell-ui.js";
+import { createToolOptionsController } from "./tool-options-ui.js";
+import { createWorkflowBuilderController } from "./workflow-builder-ui.js";
+import {
+  formatPcrPrimerDesignSummary,
+  PCR_PRIMER_CONSTRAINT_DETAIL_IDS,
+  PCR_PRIMER_DESIGN_PRESETS
+} from "./pcr-primer-design-options-model.js";
+import {
+  loadMarkdownNotebookDraft,
+  markdownFilenameFromLoadedFile,
+  markdownFileStemFromFilename,
+  normalizeMarkdownFilename,
+  saveMarkdownNotebookDraft
+} from "./markdown-notebook-model.js";
+import { createMarkdownWorkspaceController } from "./markdown-notebook-workspace-ui.js";
+import { parseFlatfileRecords } from "../core/flatfile-records.js";
 import { runWorkflow, validateWorkflowDefinition } from "../core/workflow-engine.js";
-import { codonUsageReferences } from "../reference-data/codon-usage/references.js";
-import dnaRnaMotifs from "../reference-data/motifs/dna-rna-motifs.js";
-import proteinMotifs from "../reference-data/motifs/protein-motifs.js";
-import motifProvenance from "../reference-data/motifs/provenance.js";
-import technicalSequenceSummary from "../reference-data/technical-sequences/summary.js";
-import technicalSequenceProvenance from "../reference-data/technical-sequences/provenance.js";
-import vectorContaminationSummary from "../reference-data/vector-contamination/summary.js";
-import vectorContaminationProvenance from "../reference-data/vector-contamination/provenance.js";
-import { restrictionEnzymeRecords } from "../reference-data/restriction-enzymes/records.js";
-import referenceDataManifest from "../reference-data/datasets.js";
+import { shouldShowPointMarkersForSeries } from "../core/plot-renderer.js";
+import { siteConfig } from "./site-config.js";
+import { workflowPresets } from "./workflow-presets.js";
+import { summarizeProteinStructure } from "../core/protein-structure.js";
+import {
+  attachWorkspaceFeatureLayersToFigure,
+  attachWorkspaceFeatureLayersToViewer
+} from "../core/workspace-layers.js";
+import { appVersion } from "../app-version.js";
+import { alignmentViewerReferenceExample } from "../examples/alignment-viewer-example.js";
 
 const state = {
   selectedTool: tools[0],
@@ -24,8 +113,14 @@ const state = {
   selectedWorkflowStepId: null,
   expandedWorkflowStepIds: new Set(),
   workflowAddStepOpen: false,
+  savedWorkflows: [],
+  activeSavedWorkflowId: "",
   workflowRun: null,
   toolRun: null,
+  workspaceSequences: [],
+  workspaceFeatureLayers: [],
+  workspaceStorageStatus: "Loading workspace...",
+  showcaseRenderToken: null,
   activeView: "tool",
   activeTags: new Set(),
   outputSearch: {
@@ -36,22 +131,47 @@ const state = {
     tool: { sortColumn: null, sortDirection: "asc", hiddenColumns: new Set(), columnPreset: "all" },
     workflow: { sortColumn: null, sortDirection: "asc", hiddenColumns: new Set(), columnPreset: "all" }
   },
-  currentToolOutputChoices: []
+  directInputFile: null,
+  currentToolOutputChoices: [],
+  currentToolDescription: ""
 };
+
+const toolIdAliases = new Map([
+  ["protein-stats", "sequence-stats-protein"]
+]);
 
 const sortedTools = [...tools].sort((left, right) =>
   left.metadata.name.localeCompare(right.metadata.name)
 );
+const visibleSortedTools = sortedTools.filter((tool) => tool.metadata.hiddenFromToolList !== true);
 
-const OUTPUT_HIGHLIGHT_LIMIT = 300_000;
-const OUTPUT_HIGHLIGHT_WINDOW = 8_000;
-const TABLE_FULL_RENDER_ROW_LIMIT = 1000;
-const TABLE_FULL_RENDER_CELL_LIMIT = 20000;
+const XLSX_EXPORT_ROW_LIMIT = 50000;
+const XLSX_EXPORT_CELL_LIMIT = 250000;
+const PROTEIN_STRUCTURE_SUGGESTION_CHAR_LIMIT = 1_500_000;
+const PCR_PRIMER_DESIGN_TOOL_ID = "pcr-primer-design";
+const SAM_BAM_SUMMARY_REGION_VIEWER_TOOL_ID = "sam-bam-summary-region-viewer";
+const VCF_EXTRACTOR_TOOL_ID = "vcf-genotype-table";
+const VCF_FILTER_TOOL_ID = "vcf-filter";
+const ALIGNMENT_VIEWER_TOOL_ID = "alignment-viewer";
+const FASTA_REGION_EXTRACTOR_TOOL_ID = "indexed-fasta-region-extractor";
+const READ_MAPPING_COVERAGE_TOOL_ID = "read-mapping-coverage";
+const BIOLOGICAL_RECORD_FORMAT_CONVERTER_TOOL_ID = "biological-record-format-converter";
+const ANNOTATED_DNA_RECORD_EXTRACTOR_TOOL_ID = "annotated-dna-record-extractor";
+const LINEAR_DNA_SEQUENCE_VIEWER_TOOL_ID = "dna-sequence-viewer";
+const CIRCULAR_DNA_SEQUENCE_VIEWER_TOOL_ID = "circular-dna-sequence-viewer";
+const GENOME_FIGURE_TOOL_ID = "genome-figure";
+const CIRCULAR_GENOME_FIGURE_TOOL_ID = "circular-genome-figure";
+const LINEAR_GENOME_FIGURE_TOOL_ID = "linear-genome-figure";
+const SEQUENCE_EDITOR_TOOL_ID = "sequence-editor";
+const PROTEIN_STRUCTURE_VIEWER_TOOL_ID = "protein-structure-viewer";
+const PROTEIN_CONSERVATION_STRUCTURE_VIEWER_TOOL_ID = "protein-conservation-structure-viewer";
 const toolWorkerClient = new ToolWorkerClient();
 
 const elements = {
   appShell: document.querySelector(".app-shell"),
+  toolNav: document.querySelector(".tool-nav"),
   sidebarToggle: document.querySelector("#sidebarToggle"),
+  sidebarResize: document.querySelector("#sidebarResize"),
   themeToggle: document.querySelector("#themeToggle"),
   toolSearch: document.querySelector("#toolSearch"),
   toolList: document.querySelector("#toolList"),
@@ -59,12 +179,15 @@ const elements = {
   toolView: document.querySelector("#toolView"),
   referenceView: document.querySelector("#referenceView"),
   feedbackView: document.querySelector("#feedbackView"),
+  workspaceView: document.querySelector("#workspaceView"),
   workflowView: document.querySelector("#workflowView"),
   appVersion: document.querySelector("#appVersion"),
   selectedReferenceTitle: document.querySelector("#selectedReferenceTitle"),
   selectedReferenceBody: document.querySelector("#selectedReferenceBody"),
   workflowLink: document.querySelector("#workflowLink"),
+  workspaceLink: document.querySelector("#workspaceLink"),
   feedbackLink: document.querySelector("#feedbackLink"),
+  workspaceBody: document.querySelector("#workspaceBody"),
   feedbackTemplates: document.querySelector("#feedbackTemplates"),
   workflowPreset: document.querySelector("#workflowPreset"),
   workflowInputTitle: document.querySelector("#workflowInputTitle"),
@@ -74,8 +197,15 @@ const elements = {
   workflowClearInput: document.querySelector("#workflowClearInput"),
   workflowInput: document.querySelector("#workflowInput"),
   workflowSummary: document.querySelector("#workflowSummary"),
+  workflowSaveName: document.querySelector("#workflowSaveName"),
+  workflowSaveCurrent: document.querySelector("#workflowSaveCurrent"),
+  workflowSavedSelect: document.querySelector("#workflowSavedSelect"),
+  workflowLoadSaved: document.querySelector("#workflowLoadSaved"),
+  workflowDeleteSaved: document.querySelector("#workflowDeleteSaved"),
+  workflowSavedStatus: document.querySelector("#workflowSavedStatus"),
   runWorkflow: document.querySelector("#runWorkflow"),
   cancelWorkflow: document.querySelector("#cancelWorkflow"),
+  workflowJsonPanel: document.querySelector("#workflowJsonPanel"),
   workflowExportJson: document.querySelector("#workflowExportJson"),
   workflowImportJson: document.querySelector("#workflowImportJson"),
   workflowValidateJson: document.querySelector("#workflowValidateJson"),
@@ -95,6 +225,8 @@ const elements = {
   workflowAddSortField: document.querySelector("#workflowAddSortField"),
   workflowAddSortDirectionRow: document.querySelector("#workflowAddSortDirectionRow"),
   workflowAddSortDirection: document.querySelector("#workflowAddSortDirection"),
+  workflowAddTakeCountRow: document.querySelector("#workflowAddTakeCountRow"),
+  workflowAddTakeCount: document.querySelector("#workflowAddTakeCount"),
   workflowAddGatherRow: document.querySelector("#workflowAddGatherRow"),
   workflowAddGatherAs: document.querySelector("#workflowAddGatherAs"),
   workflowOpenAddStep: document.querySelector("#workflowOpenAddStep"),
@@ -110,6 +242,7 @@ const elements = {
   workflowOutputSearchPrevious: document.querySelector("#workflowOutputSearchPrevious"),
   workflowOutputSearchNext: document.querySelector("#workflowOutputSearchNext"),
   workflowOutputSearchCount: document.querySelector("#workflowOutputSearchCount"),
+  workflowOutputSearchRow: document.querySelector("#workflowOutputSearchRow"),
   workflowOutputHighlight: document.querySelector("#workflowOutputHighlight"),
   workflowOutputViewTabs: document.querySelector("#workflowOutputViewTabs"),
   workflowOutputViewNote: document.querySelector("#workflowOutputViewNote"),
@@ -120,27 +253,43 @@ const elements = {
   workflowCopyOutput: document.querySelector("#workflowCopyOutput"),
   toolCategory: document.querySelector("#toolCategory"),
   toolTitle: document.querySelector("#toolTitle"),
+  toolFeedbackLink: document.querySelector("#toolFeedbackLink"),
   toolTags: document.querySelector("#toolTags"),
   toolSummary: document.querySelector("#toolSummary"),
   toolOptions: document.querySelector("#toolOptions"),
   restoreDefaults: document.querySelector("#restoreDefaults"),
   editorGrid: document.querySelector(".editor-grid"),
+  editorResize: document.querySelector("#editorResize"),
   inputPanel: document.querySelector(".input-panel"),
+  optionsPanel: document.querySelector(".options-panel"),
+  markdownWorkspace: document.querySelector("#markdownWorkspace"),
+  resultPanel: document.querySelector(".result-panel"),
   sequenceInput: document.querySelector("#sequenceInput"),
+  markdownInputTools: document.querySelector("#markdownInputTools"),
+  markdownInputFileName: document.querySelector("#markdownInputFileName"),
+  markdownInsertTemplate: document.querySelector("#markdownInsertTemplate"),
+  markdownSaveDraft: document.querySelector("#markdownSaveDraft"),
+  markdownLoadDraft: document.querySelector("#markdownLoadDraft"),
+  markdownCopyInput: document.querySelector("#markdownCopyInput"),
+  markdownDownloadInput: document.querySelector("#markdownDownloadInput"),
+  markdownInputStatus: document.querySelector("#markdownInputStatus"),
   splitInputPanel: document.querySelector("#splitInputPanel"),
   fileInput: document.querySelector("#fileInput"),
   dropZone: document.querySelector("#dropZone"),
   dropZoneLabel: document.querySelector("#dropZoneLabel"),
+  inputFileStatus: document.querySelector("#inputFileStatus"),
   loadExample: document.querySelector("#loadExample"),
   clearInput: document.querySelector("#clearInput"),
   runTool: document.querySelector("#runTool"),
   cancelTool: document.querySelector("#cancelTool"),
   copyOutput: document.querySelector("#copyOutput"),
   downloadOutput: document.querySelector("#downloadOutput"),
+  downloadPngOutput: document.querySelector("#downloadPngOutput"),
   outputSearch: document.querySelector("#outputSearch"),
   outputSearchPrevious: document.querySelector("#outputSearchPrevious"),
   outputSearchNext: document.querySelector("#outputSearchNext"),
   outputSearchCount: document.querySelector("#outputSearchCount"),
+  outputSearchRow: document.querySelector("#outputSearchRow"),
   toolOutputHighlight: document.querySelector("#toolOutputHighlight"),
   outputViewTabs: document.querySelector("#outputViewTabs"),
   outputFormatSelect: document.querySelector("#outputFormatSelect"),
@@ -148,239 +297,262 @@ const elements = {
   messages: document.querySelector("#messages"),
   visualOutput: document.querySelector("#visualOutput"),
   toolOutput: document.querySelector("#toolOutput"),
+  toolOutputEmpty: document.querySelector("#toolOutputEmpty"),
   toolTableOutput: document.querySelector("#toolTableOutput")
 };
 
-const workflowPresets = [
-  {
-    id: "orf-codon-usage",
-    name: "ORFs to codon usage",
-    summary: "Find complete forward-strand ORFs, pass ORF nucleotide records to Codon Usage, and show the codon table.",
-    example: `>orf-example-one
-AAACCCATGAAATAGGGGATGCCCTAA
->orf-example-two
-TTTATGGCTGCTGCTTAACCCATGTTTTAG
->orf-example-three
-GGGATGAAACCCGGGTAAATGCCCAAATAG`,
-    workflow: {
-      steps: [
-        { id: "input", type: "input", text: "" },
-        {
-          id: "find-orfs",
-          type: "tool",
-          toolId: "orf-finder",
-          selectStream: "orfRecords",
-          options: {
-            strand: "forward",
-            startMode: "start-codon",
-            minimumAminoAcids: 1,
-            includePartial: false,
-            outputFormat: "report"
-          }
-        },
-        {
-          id: "codon-usage",
-          type: "tool",
-          toolId: "codon-usage",
-          input: { from: "find-orfs", stream: "orfRecords" },
-          selectStream: "table",
-          options: { outputFormat: "tsv" }
-        }
-      ]
-    }
-  },
-  {
-    id: "genbank-cds-codon-usage",
-    name: "GenBank CDS to codon usage",
-    summary: "Parse annotated flatfile records, pass extracted CDS DNA/RNA records to Codon Usage, and show the codon table.",
-    example: `LOCUS       TEST0001                  39 bp    DNA     circular SYN 01-JAN-2026
-DEFINITION  Synthetic parser example record.
-ACCESSION   TEST0001
-VERSION     TEST0001.1
-SOURCE      synthetic construct
-  ORGANISM  synthetic construct
-FEATURES             Location/Qualifiers
-     source          1..39
-                     /organism="synthetic construct"
-     CDS             1..9
-                     /gene="aaa"
-                     /locus_tag="TEST_0001"
-                     /product="forward peptide"
-                     /protein_id="AAA00001.1"
-                     /translation="MKF"
-     CDS             complement(22..30)
-                     /gene="bbb"
-                     /product="reverse peptide"
-                     /protein_id="AAA00002.1"
-                     /translation="MPF"
-ORIGIN
-        1 atgaaattta acccgggtta caaagggcat aaatttcca
-//`,
-    workflow: {
-      steps: [
-        { id: "input", type: "input", text: "" },
-        {
-          id: "parse-records",
-          type: "tool",
-          toolId: "record-parser-extractor",
-          selectStream: "cdsSequenceRecords",
-          options: { outputFormat: "cds-fasta" }
-        },
-        {
-          id: "codon-usage",
-          type: "tool",
-          toolId: "codon-usage",
-          input: { from: "parse-records", stream: "cdsSequenceRecords" },
-          selectStream: "table",
-          options: {
-            frame: "1",
-            excludeTerminalStop: false,
-            outputFormat: "tsv"
-          }
-        }
-      ]
-    }
-  },
-  {
-    id: "filter-reverse-complement",
-    name: "Filter records and reverse complement",
-    summary: "Split FASTA records, keep records at least 9 bases long, reverse-complement each, and gather sequence records.",
-    example: `>short
-ATG
->keep-one
-ATGAAATAG
->keep-two
-CCCTTTAAA
->keep-three
-ACGTRYSWKMBDHVN
->tiny
-AC`,
-    workflow: {
-      steps: [
-        { id: "input", type: "input", text: "" },
-        { id: "split", type: "split" },
-        {
-          id: "filter-length",
-          type: "filter",
-          criteria: { field: "length", operator: ">=", value: 9 }
-        },
-        {
-          id: "reverse-complement",
-          type: "map",
-          toolId: "reverse-complement",
-          selectStream: "sequenceRecords",
-          options: {
-            preserveCase: false,
-            formatFasta: true
-          }
-        },
-        { id: "gather", type: "gather", as: "sequence-records" }
-      ]
-    }
-  },
-  {
-    id: "translate-reverse-translate",
-    name: "Translate then reverse translate",
-    summary: "Translate DNA/RNA to protein records, then reverse translate those protein records using the E. coli codon reference.",
-    example: `>coding-one
-ATGGCTTTATGG
->coding-two
-ATGGCATTATTG`,
-    workflow: {
-      steps: [
-        { id: "input", type: "input", text: "" },
-        {
-          id: "translate",
-          type: "tool",
-          toolId: "translate",
-          selectStream: "proteinRecords",
-          options: {
-            frame: "1",
-            geneticCode: "11",
-            formatFasta: true
-          }
-        },
-        {
-          id: "reverse-translate",
-          type: "tool",
-          toolId: "reverse-translate",
-          input: { from: "translate", stream: "proteinRecords" },
-          selectStream: "dnaRecords",
-          options: {
-            referenceId: "ecoli-k12-mg1655-refseq",
-            mode: "most-likely",
-            outputFormat: "fasta"
-          }
-        }
-      ]
-    }
-  },
-  {
-    id: "stats-gc-filter",
-    name: "Sequence stats GC filter",
-    summary: "Calculate sequence stats and keep table rows with GC percent at least 60.",
-    example: `>one
-ACGT
->two
-GGNN
->three
-ATATAT
->gc-rich
-GGGCCCGCGCGC
->mixed-ambiguous
-ACGTRYSWKMBDHVN`,
-    workflow: {
-      steps: [
-        { id: "input", type: "input", text: "" },
-        {
-          id: "stats",
-          type: "tool",
-          toolId: "sequence-stats-dna-rna",
-          selectStream: "table",
-          options: { outputFormat: "tsv" }
-        },
-        {
-          id: "gc-filter",
-          type: "filter",
-          criteria: { field: "gc_percent", operator: ">=", value: 60 }
-        }
-      ]
-    }
-  },
-  {
-    id: "random-rna-stats",
-    name: "Random RNA sequence stats",
-    summary: "Generate random RNA sequence records, pass them to Sequence Stats, and show the stats table.",
-    example: "",
-    workflow: {
-      steps: [
-        {
-          id: "random-rna",
-          type: "tool",
-          toolId: "random-dna-rna",
-          selectStream: "sequenceRecords",
-          options: {
-            nucleotideAlphabet: "rna",
-            sequenceLength: 120,
-            sequenceCount: 3,
-            seed: "",
-            outputFormat: "fasta"
-          }
-        },
-        {
-          id: "stats",
-          type: "tool",
-          toolId: "sequence-stats-dna-rna",
-          input: { from: "random-rna", stream: "sequenceRecords" },
-          selectStream: "table",
-          options: { outputFormat: "tsv" }
-        }
-      ]
-    }
-  }
-];
+const sangerTraceWorkspace = createSangerTraceWorkspaceController({
+  panel: elements.splitInputPanel,
+  toolOptions: elements.toolOptions,
+  getSelectedTool: () => state.selectedTool,
+  splitInputExampleParts,
+  formatExampleInputForDisplay,
+  readToolInputFileText,
+  addMessage,
+  updateInputActionButtons,
+  clearToolOutput
+});
 
-const mobileNavigationQuery = window.matchMedia("(max-width: 880px)");
+const workspaceInputSources = createWorkspaceInputSourceController({
+  elements,
+  tools,
+  sortedTools,
+  getSelectedTool: () => state.selectedTool,
+  getWorkspaceSequences: () => state.workspaceSequences,
+  toolRequiresInput,
+  isTabbedInputWorkflowTool,
+  selectTool,
+  clearToolOutput,
+  clearWorkflowOutput
+});
+
+const workspaceView = createWorkspaceViewController({
+  body: elements.workspaceBody,
+  getSequences: () => state.workspaceSequences,
+  getFeatureLayers: () => state.workspaceFeatureLayers,
+  getStorageStatus: () => state.workspaceStorageStatus,
+  setStorageStatus: (message) => {
+    state.workspaceStorageStatus = message;
+  },
+  getCompatibleTools: workspaceInputSources.getCompatibleTools,
+  openSequenceInTool: workspaceInputSources.openSequenceInTool,
+  refresh: refreshWorkspaceSequences,
+  pluralize
+});
+
+function createMarkdownWorkspaceField(labelText, control) {
+  const label = document.createElement("label");
+  label.className = "markdown-workspace-field";
+  const labelSpan = document.createElement("span");
+  labelSpan.textContent = labelText;
+  label.append(labelSpan, control);
+  return label;
+}
+
+function createMarkdownWorkspaceButton(label, className = "") {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.textContent = label;
+  if (className) {
+    button.className = className;
+  }
+  return button;
+}
+
+function isMarkdownNotebookSelected() {
+  return state.selectedTool?.metadata?.id === "markdown-notebook";
+}
+
+function setHiddenMarkdownOption(id, value) {
+  const control = elements.toolOptions.querySelector(`#${id}`);
+  if (!control) {
+    return;
+  }
+  if (control.type === "checkbox") {
+    control.checked = Boolean(value);
+  } else {
+    control.value = value ?? "";
+  }
+}
+
+function getMarkdownWorkspaceControl(name) {
+  return markdownWorkspace.getControl(name);
+}
+
+function setMarkdownWorkspaceStatus(message) {
+  markdownWorkspace.setStatus(message);
+}
+
+function readMarkdownWorkspaceState() {
+  return markdownWorkspace.readState();
+}
+
+function syncHiddenMarkdownOptionsFromWorkspace() {
+  const markdownState = readMarkdownWorkspaceState();
+  if (!markdownState) {
+    return;
+  }
+  setHiddenMarkdownOption("templateId", markdownState.templateId);
+  setHiddenMarkdownOption("title", markdownState.title);
+  setHiddenMarkdownOption("date", markdownState.date);
+  setHiddenMarkdownOption("fileName", markdownFileStemFromFilename(markdownState.fileName));
+  setHiddenMarkdownOption("includeFrontMatter", markdownState.includeFrontMatter);
+}
+
+function getMarkdownWorkspaceOptions() {
+  return markdownWorkspace.getOptions();
+}
+
+function syncMarkdownInputFilenameFromOptions() {
+  markdownWorkspace.syncInputFilenameFromOptions();
+}
+
+function syncMarkdownTemplateDefaults() {
+  if (!isMarkdownNotebookSelected() || !elements.markdownInputFileName) {
+    return;
+  }
+  markdownWorkspace.syncTemplateDefaults();
+}
+
+function setMarkdownInputStatus(message) {
+  if (elements.markdownInputStatus) {
+    elements.markdownInputStatus.textContent = message;
+  }
+}
+
+function updateMarkdownInputUi() {
+  if (!isMarkdownNotebookSelected()) {
+    return;
+  }
+  syncMarkdownTemplateDefaults();
+  syncMarkdownInputFilenameFromOptions();
+  if (!elements.markdownInputTools || elements.markdownInputTools.hidden) {
+    return;
+  }
+  elements.markdownInsertTemplate.hidden = false;
+  elements.markdownInsertTemplate.textContent = "Use selected template";
+  elements.markdownSaveDraft.hidden = true;
+  elements.markdownCopyInput.hidden = true;
+  elements.markdownDownloadInput.hidden = true;
+  elements.markdownLoadDraft.textContent = "Use saved draft";
+  const hasSource = Boolean(elements.sequenceInput.value.trim());
+  setMarkdownInputStatus(
+    hasSource
+      ? "Markdown source is ready. Click Run to start editing. Saved drafts stay on this computer in this browser profile; SMS3 does not upload or sync them."
+      : "Choose a Markdown file, use the selected template, or load a saved draft. Click Run to start editing. Download .md from the editor when you want a regular file."
+  );
+}
+
+function insertMarkdownNotebookTemplate() {
+  markdownWorkspace.insertTemplate();
+  setMarkdownInputStatus("Template selected. Click Run to start editing.");
+}
+
+function getMarkdownInputFilename() {
+  return markdownWorkspace.getInputFilename();
+}
+
+function syncMarkdownWorkspaceFromSource(message = "Loaded Markdown source.") {
+  if (!isMarkdownNotebookSelected()) {
+    return;
+  }
+  markdownWorkspace.syncFromSource(message);
+}
+
+function renderMarkdownWorkspace(previousState = null) {
+  markdownWorkspace.render(previousState);
+}
+
+const markdownWorkspace = createMarkdownWorkspaceController({
+  container: elements.markdownWorkspace,
+  sourceInput: elements.sequenceInput,
+  toolOptions: elements.toolOptions,
+  markdownInputFileName: elements.markdownInputFileName,
+  createField: createMarkdownWorkspaceField,
+  createButton: createMarkdownWorkspaceButton,
+  readToolInputFileText,
+  downloadText,
+  getFallbackOptions: getOptions,
+  getSelectedToolExample: () => state.selectedTool.example ?? "",
+  getFileNameDefaultValue: () => flattenOptions(state.selectedTool?.metadata?.options ?? [])
+    .find((option) => option.id === "fileName")?.defaultValue,
+  syncHiddenOptions: syncHiddenMarkdownOptionsFromWorkspace
+});
+
+const toolOptionsUi = createToolOptionsController({
+  elements,
+  state,
+  callbacks: {
+    addMessage,
+    clearToolOutput,
+    updateToolOptionSuggestions
+  }
+});
+
+const workflowBuilder = createWorkflowBuilderController({
+  elements,
+  state,
+  tools,
+  workflowPresets,
+  toolIdAliases,
+  workspaceInputSources,
+  helpers: {
+    appendRuleListControl: toolOptionsUi.appendRuleListControl,
+    appendValueListControl: toolOptionsUi.appendValueListControl,
+    createOptionLabelContent: toolOptionsUi.createOptionLabelContent,
+    flattenOptions: toolOptionsUi.flattenOptions,
+    normalizeDependentOptionValues: toolOptionsUi.normalizeDependentOptionValues,
+    populateDependentSelect: toolOptionsUi.populateDependentSelect,
+    visibleWhenMatches: toolOptionsUi.visibleWhenMatches
+  },
+  callbacks: {
+    addWorkflowMessage,
+    clearWorkflowOutput,
+    parseWorkflowJson,
+    updateInputActionButtons
+  }
+});
+
+const toolInputShell = createToolInputShellController({
+  elements,
+  state,
+  workspaceInputSources,
+  sangerTraceWorkspace,
+  helpers: {
+    appendToolOptionControl: toolOptionsUi.appendToolOptionControl,
+    flattenOptions,
+    getDefaultOptionValues: toolOptionsUi.getDefaultOptionValues,
+    serializeRuleListControl,
+    serializeValueListControl
+  },
+  callbacks: {
+    clearToolOutput,
+    isAlignmentViewerTool,
+    isFastaSourceTabbedTool,
+    isFastaRegionExtractorTool,
+    isMarkdownNotebookSelected,
+    isProteinConservationStructureViewerTool,
+    isProteinStructureViewerTool,
+    isSamBamSummaryRegionViewerTool,
+    isSangerTraceViewerTool,
+    isTabbedInputWorkflowTool,
+    isVcfTabbedInputTool,
+    renderSplitInputPanel,
+    resetToolOutputViewer,
+    setFastaRegionSourceMode,
+    syncMarkdownWorkspaceFromSource,
+    updateFastaSourceInputUi,
+    updateFastaRegionExtractorSourceUi,
+    updateAlignmentViewerInputUi,
+    updateMarkdownInputUi,
+    updateProteinStructureViewerUi,
+    updateSamBamInputModeUi,
+    updateToolOptionSuggestions,
+    updateVcfInputModeUi
+  }
+});
+
+const appLayout = createAppLayoutController({ elements });
 
 const feedbackTemplates = [
   {
@@ -433,545 +605,30 @@ What would make SMS3 easier to teach with?
   }
 ];
 
-// Reference values below are UI reference content, not analysis logic.
-// Nucleotide base codes cite the DDBJ/ENA/GenBank Feature Table Definition:
-// https://www.ddbj.nig.ac.jp/ddbj/feature-table.html
-// Amino-acid abbreviations cite the same maintained INSDC feature-table spec.
-// Genetic-code names and transl_table identifiers cite NCBI Genetic Codes:
-// https://www.ncbi.nlm.nih.gov/Taxonomy/Utils/wprintgc.cgi
-function makeCodonReferenceRows() {
-  return codonUsageReferences.map((reference) => {
-    const skipped = reference.buildStats?.skipped
-      ? Object.entries(reference.buildStats.skipped)
-          .filter(([, count]) => count > 0)
-          .map(([key, count]) => `${key}: ${count}`)
-          .join("; ") || "none"
-      : "not applicable";
-    return [
-      reference.name,
-      reference.organism,
-      `${reference.geneticCode.id}. ${reference.geneticCode.name}`,
-      String(reference.totals.senseCodons),
-      String(reference.buildStats?.countedCds ?? ""),
-      skipped,
-      reference.source.accessDate,
-      `${reference.source.name} ${reference.source.version}`.trim(),
-      reference.description
-    ];
-  });
-}
-
-function makeMotifReferenceRows() {
-  return [...dnaRnaMotifs, ...proteinMotifs]
-    .sort(
-      (left, right) =>
-        left.alphabet.localeCompare(right.alphabet) ||
-        left.class.localeCompare(right.class) ||
-        left.name.localeCompare(right.name)
-    )
-    .map((motif) => [
-      motif.name,
-      motif.alphabet === "protein" ? "Protein" : "DNA/RNA",
-      motif.class,
-      motif.syntax,
-      motif.pattern,
-      `${motif.source.name} ${motif.source.version}`.trim(),
-      motif.source.accessDate,
-      motif.description
-    ]);
-}
-
-function makeTechnicalSequenceReferenceRows() {
-  return technicalSequenceSummary
-    .map((record) => [
-      record.name,
-      record.class,
-      record.syntax,
-      record.pattern,
-      `${record.source.name} ${record.source.version}`.trim(),
-      record.source.accessDate,
-      record.description
-    ])
-    .sort((left, right) => left[1].localeCompare(right[1]) || left[0].localeCompare(right[0]));
-}
-
-function makeVectorContaminationReferenceRows() {
-  return [
-    [
-      vectorContaminationSummary.dataset,
-      vectorContaminationSummary.sourceName,
-      vectorContaminationSummary.sourceVersion,
-      String(vectorContaminationSummary.recordCount),
-      String(vectorContaminationSummary.totalBases),
-      String(vectorContaminationSummary.kmerLength),
-      String(vectorContaminationSummary.indexFormatVersion),
-      vectorContaminationProvenance.accessDate,
-      vectorContaminationProvenance.buildScript,
-      vectorContaminationSummary.matchModel
-    ]
-  ];
-}
-
-function makeReferenceDataManifestRows() {
-  return referenceDataManifest.datasets.map((dataset) => [
-    dataset.name,
-    dataset.id,
-    dataset.fetchScript ?? "none",
-    dataset.buildScript,
-    dataset.offlineBuild ? "yes" : "no",
-    dataset.requiresNetworkForFetch ? "yes" : "no",
-    dataset.sourceDirectory ?? "none",
-    dataset.generatedFiles.join("; "),
-    dataset.validationTest,
-    dataset.notes
-  ]);
-}
-
-function formatToolSummaryContract(contracts, fallback) {
-  const visibleContracts = (contracts ?? []).filter((contract) =>
-    contract.id !== "primary" || (contracts ?? []).length === 1
-  );
-  const labels = visibleContracts
-    .map((contract) => describeWorkflowStreamChoice(contract))
-    .filter(Boolean);
-  const uniqueLabels = [...new Set(labels)];
-  return uniqueLabels.length > 0 ? uniqueLabels.join("; ") : fallback;
-}
-
-function formatToolSummaryTableOutputs(outputs) {
-  const labels = (outputs ?? [])
-    .filter((output) => output.kind === "table" || output.mediaType?.includes("tab-separated-values") || output.mediaType?.includes("csv"))
-    .map((output) => describeWorkflowStreamChoice(output))
-    .filter(Boolean);
-  const uniqueLabels = [...new Set(labels)];
-  return uniqueLabels.length > 0 ? uniqueLabels.join("; ") : "None";
-}
-
-function formatToolSummaryMetadataChecks(metadata) {
-  const checks = [];
-  const outputs = metadata.workflow?.outputs ?? [];
-  const outputIds = outputs.map((output) => output.id);
-  const duplicateOutputIds = [...new Set(outputIds.filter((id, index) => outputIds.indexOf(id) !== index))];
-  if (!metadata.workflow?.inputs?.length && metadata.inputRequired !== false) {
-    checks.push("missing workflow inputs");
-  }
-  if (!outputs.length) {
-    checks.push("missing workflow outputs");
-  }
-  if (duplicateOutputIds.length > 0) {
-    checks.push(`duplicate outputs: ${duplicateOutputIds.join(", ")}`);
-  }
-  const tableOutputs = outputs.filter((output) => output.kind === "table");
-  for (const output of tableOutputs) {
-    if (!output.schema) {
-      checks.push(`${output.id} table has no schema`);
-    }
-    if (output.schema !== "generic-table" && !(output.columns ?? []).length) {
-      checks.push(`${output.id} table has no columns`);
-    }
-  }
-  const outputFormat = flattenOptions(metadata.options ?? []).find((option) => option.id === "outputFormat");
-  const hasDelimitedChoice = (outputFormat?.choices ?? []).some((choice) => choice.value === "tsv" || choice.value === "csv");
-  if (hasDelimitedChoice && tableOutputs.length === 0) {
-    checks.push("TSV/CSV format has no table output");
-  }
-  return checks.length > 0 ? checks.join("; ") : "OK";
-}
-
-function makeToolSummaryRows() {
-  return sortedTools.map((tool) => {
-    const { metadata } = tool;
-    return [
-      metadata.name,
-      metadata.inputType,
-      formatToolSummaryContract(metadata.workflow?.inputs, metadata.inputType),
-      metadata.outputType,
-      formatToolSummaryContract(metadata.workflow?.outputs, metadata.outputType),
-      formatToolSummaryTableOutputs(metadata.workflow?.outputs),
-      formatToolSummaryMetadataChecks(metadata),
-      metadata.category,
-      metadata.tags.join(", "),
-      metadata.id,
-      `#tool=${metadata.id}`,
-      metadata.summary
-    ];
-  });
-}
-
-function makeRestrictionEnzymeRows() {
-  return restrictionEnzymeRecords.map((enzyme) => [
-    enzyme.name,
-    enzyme.recognition,
-    enzyme.cutTop,
-    enzyme.cutBottom,
-    enzyme.overhang,
-    enzyme.source
-  ]);
-}
-
-const referenceTopics = [
-  {
-    id: "tool-summary",
-    label: "Tool summary",
-    title: "Tool Summary",
-    summary: "Registered SMS3 tools, searchable metadata, accepted inputs, produced outputs, tags, and direct-link IDs.",
-    columns: ["Tool", "Input label", "Accepted inputs", "Output label", "Produced outputs", "Table outputs", "Metadata check", "Category", "Tags", "Tool ID", "Direct link", "Summary"],
-    rows: makeToolSummaryRows(),
-    notes: [
-      "Input and output labels are the short user-facing tool descriptions. Accepted inputs and produced outputs are generated from the same workflow metadata used by the workflow builder.",
-      "Table outputs identify structured browser-table data that can be copied or downloaded as exact TSV/CSV without displaying raw TSV/CSV text in the main output area.",
-      "Metadata check reports obvious workflow-output problems that should be fixed before adding or promoting tools.",
-      "Direct-link IDs are stable enough for tutorials and teaching material.",
-      "When adding tools, update metadata deliberately and keep tags within the controlled vocabulary in src/tools/tag-vocabulary.js."
-    ],
-    citations: []
-  },
-  {
-    id: "iupac-nucleotide",
-    label: "IUPAC nucleotide codes",
-    title: "IUPAC Nucleotide Codes",
-    summary: "DNA/RNA base symbols, ambiguity symbols, and complements used by sequence tools.",
-    columns: ["Code", "Meaning", "Complement"],
-    rows: [
-      ["A", "Adenine", "T or U"],
-      ["C", "Cytosine", "G"],
-      ["G", "Guanine", "C"],
-      ["T", "Thymine", "A"],
-      ["U", "Uracil", "A"],
-      ["R", "A or G", "Y"],
-      ["Y", "C or T/U", "R"],
-      ["S", "G or C", "S"],
-      ["W", "A or T/U", "W"],
-      ["K", "G or T/U", "M"],
-      ["M", "A or C", "K"],
-      ["B", "C, G, or T/U", "V"],
-      ["D", "A, G, or T/U", "H"],
-      ["H", "A, C, or T/U", "D"],
-      ["V", "A, C, or G", "B"],
-      ["N", "Any base", "N"],
-      [". or -", "Gap", ". or -"]
-    ],
-    notes: [
-      "SMS3 treats U as the RNA counterpart of T when complementing mixed DNA/RNA input.",
-      "Gap handling is tool-specific; tools that preserve gaps should document that behavior."
-    ],
-    citations: [
-      {
-        label: "DDBJ/ENA/GenBank Feature Table Definition v11.3, nucleotide base codes",
-        url: "https://www.ddbj.nig.ac.jp/ddbj/feature-table.html"
-      }
-    ]
-  },
-  {
-    id: "iupac-amino-acid",
-    label: "IUPAC amino acid codes",
-    title: "IUPAC Amino Acid Codes",
-    summary: "One-letter and three-letter symbols used for protein sequence input and output.",
-    columns: ["Code", "Three-letter", "Meaning"],
-    rows: [
-      ["A", "Ala", "Alanine"],
-      ["B", "Asx", "Aspartic acid or asparagine"],
-      ["C", "Cys", "Cysteine"],
-      ["D", "Asp", "Aspartic acid"],
-      ["E", "Glu", "Glutamic acid"],
-      ["F", "Phe", "Phenylalanine"],
-      ["G", "Gly", "Glycine"],
-      ["H", "His", "Histidine"],
-      ["I", "Ile", "Isoleucine"],
-      ["J", "Xle", "Leucine or isoleucine"],
-      ["K", "Lys", "Lysine"],
-      ["L", "Leu", "Leucine"],
-      ["M", "Met", "Methionine"],
-      ["N", "Asn", "Asparagine"],
-      ["O", "Pyl", "Pyrrolysine"],
-      ["P", "Pro", "Proline"],
-      ["Q", "Gln", "Glutamine"],
-      ["R", "Arg", "Arginine"],
-      ["S", "Ser", "Serine"],
-      ["T", "Thr", "Threonine"],
-      ["U", "Sec", "Selenocysteine"],
-      ["V", "Val", "Valine"],
-      ["W", "Trp", "Tryptophan"],
-      ["X", "Xaa", "Unknown or any amino acid"],
-      ["Y", "Tyr", "Tyrosine"],
-      ["Z", "Glx", "Glutamic acid or glutamine"],
-      ["*", "Ter", "Termination"],
-      [". or -", "Gap", "Gap"]
-    ],
-    notes: [
-      "Ambiguous and uncommon residue symbols should be handled explicitly by each protein tool.",
-      "Protein property tools must document how B, J, O, U, X, Z, stop, and gap symbols affect calculations."
-    ],
-    citations: [
-      {
-        label: "DDBJ/ENA/GenBank Feature Table Definition v11.3, amino acid abbreviations",
-        url: "https://www.ddbj.nig.ac.jp/ddbj/feature-table.html"
-      }
-    ]
-  },
-  {
-    id: "genetic-codes",
-    label: "Genetic codes",
-    title: "Genetic Codes",
-    summary: "Inspect NCBI transl_table codon assignments, starts, stops, and differences from the standard code.",
-    interactive: "genetic-codes",
-    notes: [
-      "Use NCBI transl_table IDs in options and structured output so results are reproducible.",
-      "Start codons are context dependent: codons marked as starts may initiate translation and be represented as methionine at the beginning of a CDS or ORF, but the same codons use their normal amino-acid assignment when translated internally.",
-      "Start-codon behavior is separate from internal codon translation and must be tested separately."
-    ],
-    citations: [
-      {
-        label: "NCBI Genetic Codes, last updated Sep. 23, 2024",
-        url: "https://www.ncbi.nlm.nih.gov/Taxonomy/Utils/wprintgc.cgi"
-      }
-    ]
-  },
-  {
-    id: "codon-usage-references",
-    label: "Codon usage references",
-    title: "Codon Usage References",
-    summary: "Bundled codon usage references available to codon comparison and reverse-translation tools.",
-    columns: [
-      "Reference",
-      "Organism",
-      "Genetic code",
-      "Sense codons",
-      "Counted CDS",
-      "Skipped records",
-      "Access date",
-      "Source",
-      "Description"
-    ],
-    rows: makeCodonReferenceRows(),
-    notes: [
-      "The synthetic equal-synonymous seed is for testing and deterministic examples, not biological interpretation.",
-      "Organism-specific references are generated by scripts under scripts/reference-data/ and checked in for offline browser use.",
-      "Use docs/reference-data-authoring-guide.md when adding or updating bundled reference datasets."
-    ],
-    citations: [
-      {
-        label: "NCBI RefSeq record NC_000913.3",
-        url: "https://www.ncbi.nlm.nih.gov/nuccore/NC_000913.3"
-      },
-      {
-        label: "NCBI RefSeq record NC_000964.3",
-        url: "https://www.ncbi.nlm.nih.gov/nuccore/NC_000964.3"
-      },
-      {
-        label: "S. cerevisiae S288C RefSeq nuclear chromosomes",
-        url: "https://www.ncbi.nlm.nih.gov/nuccore/?term=NC_001133+OR+NC_001134+OR+NC_001135+OR+NC_001136+OR+NC_001137+OR+NC_001138+OR+NC_001139+OR+NC_001140+OR+NC_001141+OR+NC_001142+OR+NC_001143+OR+NC_001144+OR+NC_001145+OR+NC_001146+OR+NC_001147+OR+NC_001148"
-      }
-    ]
-  },
-  {
-    id: "restriction-enzymes",
-    label: "Restriction enzymes",
-    title: "Restriction Enzymes",
-    summary: "Bundled restriction enzyme recognition sites used by restriction analysis tools.",
-    columns: ["Name", "Recognition", "Cut top", "Cut bottom", "Overhang", "Source"],
-    rows: makeRestrictionEnzymeRows(),
-    notes: [
-      "Use browser find/search on this reference page to locate enzymes by name, recognition sequence, overhang, or source.",
-      "Cut offsets use the same semantics as the Restriction Analysis tool."
-    ],
-    citations: [
-      {
-        label: "REBASE restriction enzyme database",
-        url: "https://rebase.neb.com/"
-      },
-      {
-        label: "NEB restriction enzyme resources",
-        url: "https://www.neb.com/tools-and-resources/selection-charts/alphabetized-list-of-recognition-specificities"
-      }
-    ]
-  },
-  {
-    id: "motif-references",
-    label: "Motif references",
-    title: "Motif References",
-    summary: "Bundled motif records available to DNA/RNA and protein motif scanner tools.",
-    columns: [
-      "Motif",
-      "Alphabet",
-      "Class",
-      "Syntax",
-      "Pattern",
-      "Source",
-      "Access date",
-      "Description"
-    ],
-    rows: makeMotifReferenceRows(),
-    notes: [
-      `${motifProvenance.dataset} ${motifProvenance.version}: ${motifProvenance.description}`,
-      `License note: ${motifProvenance.license}`,
-      ...motifProvenance.notes,
-      "The current motif set is intentionally small. It validates the scanner, UI, workflow table output, and provenance model before larger external databases are imported.",
-      "PFM/PWM transcription-factor profile scanning, such as JASPAR-style searching, is planned as a separate future matrix-scanning tool."
-    ],
-    citations: [
-      {
-        label: "PROSITE",
-        url: "https://prosite.expasy.org/"
-      },
-      {
-        label: "EMBOSS patmatmotifs project documentation",
-        url: "https://emboss.sourceforge.net/apps/release/6.5/emboss/apps/patmatmotifs.html"
-      },
-      {
-        label: "JASPAR",
-        url: "https://jaspar.elixir.no/"
-      }
-    ]
-  },
-  {
-    id: "technical-sequence-references",
-    label: "Technical sequence references",
-    title: "Technical Sequence References",
-    summary: "Bundled primer, adapter, and technical-sequence records available to the Technical Sequence Scanner.",
-    columns: ["Sequence", "Class", "Syntax", "Pattern", "Source", "Access date", "Description"],
-    rows: makeTechnicalSequenceReferenceRows(),
-    notes: [
-      `${technicalSequenceProvenance.dataset} ${technicalSequenceProvenance.version}: ${technicalSequenceProvenance.description}`,
-      `License note: ${technicalSequenceProvenance.license}`,
-      ...technicalSequenceProvenance.notes,
-      "The scanner searches both DNA strands by default and can report conservative 5-prime/3-prime partial end matches.",
-      "Use dedicated FASTQ trimming tools for error-tolerant adapter removal."
-    ],
-    citations: [
-      {
-        label: "Illumina adapter trimming guidance",
-        url: "https://knowledge.illumina.com/library-preparation/general/library-preparation-general-reference_material-list/000001314"
-      },
-      {
-        label: "Addgene sequencing primers",
-        url: "https://www.addgene.org/mol-bio-reference/sequencing-primers/"
-      },
-      {
-        label: "Cutadapt user guide",
-        url: "https://cutadapt.readthedocs.io/en/stable/guide.html"
-      },
-      {
-        label: "NCBI UniVec",
-        url: "https://www.ncbi.nlm.nih.gov/tools/vecscreen/univec/"
-      }
-    ]
-  },
-  {
-    id: "vector-contamination-references",
-    label: "Vector contamination references",
-    title: "Vector Contamination References",
-    summary: "Bundled UniVec_Core-derived records available to the Vector Contamination Scanner.",
-    columns: [
-      "Dataset",
-      "Source",
-      "Source version",
-      "Records",
-      "Bases",
-      "Seed length",
-      "Index format",
-      "Access date",
-      "Build script",
-      "Match model"
-    ],
-    rows: makeVectorContaminationReferenceRows(),
-    notes: [
-      `${vectorContaminationProvenance.dataset} ${vectorContaminationProvenance.version}.`,
-      `Redistribution note: ${vectorContaminationProvenance.redistribution}`,
-      ...vectorContaminationSummary.notes,
-      ...vectorContaminationProvenance.notes,
-      "The bundled files are used locally in the browser worker; SMS3 does not send user sequences to NCBI."
-    ],
-    citations: [
-      {
-        label: "NCBI UniVec_Core",
-        url: "https://ftp.ncbi.nlm.nih.gov/pub/UniVec/UniVec_Core"
-      },
-      {
-        label: "NCBI UniVec README",
-        url: "https://ftp.ncbi.nlm.nih.gov/pub/UniVec/README.uv"
-      },
-      {
-        label: "NCBI VecScreen",
-        url: "https://www.ncbi.nlm.nih.gov/tools/vecscreen/"
-      }
-    ]
-  },
-  {
-    id: "reference-data-builds",
-    label: "Reference data builds",
-    title: "Reference Data Builds",
-    summary: "Bundled reference-data families, build scripts, generated files, and validation tests.",
-    columns: [
-      "Dataset",
-      "ID",
-      "Fetch script",
-      "Build script",
-      "Offline build",
-      "Network fetch",
-      "Source cache",
-      "Generated files",
-      "Validation test",
-      "Notes"
-    ],
-    rows: makeReferenceDataManifestRows(),
-    notes: [
-      `Manifest schema version ${referenceDataManifest.schemaVersion}.`,
-      "Fetch scripts are maintenance steps and may use network access. Normal browser use and normal tests consume checked-in generated app data.",
-      "Run npm run reference-data:build and npm test after changing bundled reference-data files."
-    ],
-    citations: []
-  },
-  {
-    id: "privacy-offline",
-    label: "Privacy/offline note",
-    title: "Privacy And Offline Processing",
-    summary: "Current SMS3 tools run in the browser with no server-side sequence submission.",
-    notes: [
-      "Sequence text is processed locally in the browser by the loaded JavaScript files.",
-      "Downloads are generated client-side with Blob/object URL APIs.",
-      "SMS3 does not use cookies.",
-      "The app stores UI preferences in localStorage: sms3-theme for light/dark mode and sms3-sidebar for navigation visibility.",
-      "Tool input, workflow input, and output text are not saved to localStorage.",
-      "If a future tool needs network access, its UI must say so before any sequence data is sent."
-    ],
-    citations: []
-  },
-  {
-    id: "citation-guidance",
-    label: "How to cite SMS",
-    title: "How To Cite SMS",
-    summary:
-      "Please cite the original Sequence Manipulation Suite paper when SMS3 or legacy SMS tools are useful in your work.",
-    interactive: "citation",
-    notes: [
-      "Use the DOI link when possible so citation databases can resolve the publication cleanly.",
-      "Include SMS3 version or access date in methods text when that detail is useful for reproducibility."
-    ],
-    citations: [
-      {
-        label: "Publisher page",
-        url: "https://doi.org/10.2144/00286ir01"
-      },
-      {
-        label: "PubMed record",
-        url: "https://pubmed.ncbi.nlm.nih.gov/10868275/"
-      }
-    ]
-  }
-];
-
-const aminoAcidNames = new Map(
-  referenceTopics
-    .find((topic) => topic.id === "iupac-amino-acid")
-    .rows.map(([code, threeLetter, meaning]) => [code, `${meaning} (${threeLetter})`])
-);
-
+const referenceTopics = makeReferenceTopics(visibleSortedTools);
+const aminoAcidNames = makeAminoAcidNames(referenceTopics);
+const referencePage = createReferencePageController({
+  aminoAcidNames,
+  elements,
+  flattenOptions,
+  getDefaultOptionValues,
+  referenceTopics,
+  renderCircularDnaViewer,
+  renderDnaViewer,
+  renderGenomeFigure,
+  renderProteinStructureViewer,
+  renderProteinViewer,
+  runTool: runAppTool,
+  selectTool,
+  state,
+  tools
+});
 function renderToolList() {
   const query = elements.toolSearch.value.trim().toLowerCase();
   elements.toolList.textContent = "";
+  const visibleTools = [];
 
-  for (const tool of sortedTools) {
+  for (const tool of visibleSortedTools) {
     const searchable = [
       tool.metadata.name,
       tool.metadata.category,
@@ -994,15 +651,41 @@ function renderToolList() {
       continue;
     }
 
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className =
-      tool === state.selectedTool && state.activeView === "tool" ? "tool-link active" : "tool-link";
-    button.textContent = tool.metadata.name;
-    button.addEventListener("click", () => {
-      selectTool(tool);
-    });
-    elements.toolList.append(button);
+    visibleTools.push(tool);
+  }
+
+  const byCategory = new Map();
+  for (const tool of visibleTools) {
+    const category = tool.metadata.category || "Other Tools";
+    if (!byCategory.has(category)) {
+      byCategory.set(category, []);
+    }
+    byCategory.get(category).push(tool);
+  }
+
+  for (const [category, toolsInCategory] of [...byCategory.entries()].sort((left, right) => compareToolCategories(left[0], right[0]))) {
+    const section = document.createElement("section");
+    section.className = "tool-category-group";
+    const heading = document.createElement("h3");
+    heading.className = "tool-category-heading";
+    heading.textContent = category;
+    section.append(heading);
+    const group = document.createElement("div");
+    group.className = "tool-category-items";
+    for (const tool of toolsInCategory) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className =
+        tool === state.selectedTool && state.activeView === "tool" ? "tool-link active" : "tool-link";
+      button.textContent = tool.metadata.name;
+      button.dataset.toolId = tool.metadata.id;
+      button.addEventListener("click", () => {
+        selectTool(tool);
+      });
+      group.append(button);
+    }
+    section.append(group);
+    elements.toolList.append(section);
   }
 }
 
@@ -1028,8 +711,10 @@ function renderActiveView() {
   elements.toolView.hidden = state.activeView !== "tool";
   elements.referenceView.hidden = state.activeView !== "reference";
   elements.feedbackView.hidden = state.activeView !== "feedback";
+  elements.workspaceView.hidden = state.activeView !== "workspace";
   elements.workflowView.hidden = state.activeView !== "workflow";
   elements.feedbackLink.classList.toggle("active", state.activeView === "feedback");
+  elements.workspaceLink.classList.toggle("active", state.activeView === "workspace");
   elements.workflowLink.classList.toggle("active", state.activeView === "workflow");
 }
 
@@ -1037,13 +722,33 @@ function scrollWorkspaceToTop() {
   window.scrollTo({ top: 0, left: 0, behavior: "auto" });
 }
 
-function selectTool(tool, { updateHash = true } = {}) {
+function scrollActiveToolIntoSidebarView() {
+  const scroller = elements.toolList.closest(".tool-nav-scroll");
+  const activeTool = elements.toolList.querySelector("button.tool-link.active");
+  if (!scroller || !activeTool) {
+    return;
+  }
+  window.requestAnimationFrame(() => {
+    const scrollerRect = scroller.getBoundingClientRect();
+    const activeRect = activeTool.getBoundingClientRect();
+    const targetOffset =
+      activeRect.top -
+      scrollerRect.top -
+      (scroller.clientHeight - activeTool.offsetHeight) / 2;
+    scroller.scrollTop += targetOffset;
+  });
+}
+
+function selectTool(tool, { updateHash = true, revealInToolList = false } = {}) {
   state.selectedTool = tool;
   state.activeView = "tool";
   scrollWorkspaceToTop();
   renderActiveView();
   renderSelectedTool();
   renderToolList();
+  if (revealInToolList) {
+    scrollActiveToolIntoSidebarView();
+  }
   renderReferenceList();
   clearToolInputOutput();
   loadSelectedToolExample();
@@ -1098,6 +803,19 @@ function selectWorkflow(workflowId = state.selectedWorkflow, { updateHash = true
   }
 }
 
+function selectWorkspace({ updateHash = true } = {}) {
+  state.activeView = "workspace";
+  scrollWorkspaceToTop();
+  renderActiveView();
+  renderToolList();
+  renderReferenceList();
+  renderWorkspaceView();
+
+  if (updateHash) {
+    setRouteHash("workspace", "sequences");
+  }
+}
+
 function setRouteHash(key, value) {
   const hash = `#${key}=${encodeURIComponent(value)}`;
   if (window.location.hash !== hash) {
@@ -1115,11 +833,13 @@ function applyRouteFromHash() {
   const toolId = params.get("tool") || (rawHash.includes("=") ? "" : rawHash);
   const referenceId = params.get("reference");
   const workflowId = params.get("workflow");
+  const workspaceId = params.get("workspace");
 
   if (toolId) {
-    const tool = sortedTools.find((item) => item.metadata.id === toolId);
+    const resolvedToolId = toolIdAliases.get(toolId) ?? toolId;
+    const tool = sortedTools.find((item) => item.metadata.id === resolvedToolId);
     if (tool) {
-      selectTool(tool, { updateHash: false });
+      selectTool(tool, { updateHash: false, revealInToolList: true });
       return true;
     }
   }
@@ -1139,21 +859,84 @@ function applyRouteFromHash() {
     return true;
   }
 
+  if (workspaceId || params.has("workspace")) {
+    selectWorkspace({ updateHash: false });
+    return true;
+  }
+
   return false;
+}
+
+async function refreshWorkspaceSequences() {
+  try {
+    const [sequences, featureLayers] = await Promise.all([
+      listWorkspaceSequences(),
+      listWorkspaceFeatureLayers()
+    ]);
+    state.workspaceSequences = sequences;
+    state.workspaceFeatureLayers = featureLayers;
+    state.workspaceStorageStatus = "";
+  } catch (error) {
+    state.workspaceSequences = [];
+    state.workspaceFeatureLayers = [];
+    state.workspaceStorageStatus = error?.message || "Workspace storage is unavailable.";
+  }
+  renderWorkspaceView();
+  workspaceInputSources.renderToolSource();
+  if (state.activeView === "workflow") {
+    renderWorkflowView();
+  }
+}
+
+function renderWorkspaceView() {
+  workspaceView.render();
 }
 
 function renderSelectedTool() {
   const { metadata } = state.selectedTool;
+  const isMarkdownNotebook = metadata.id === "markdown-notebook";
+  const isStandaloneWorkspace = isMarkdownNotebook;
+  const markdownWorkspaceState = isMarkdownNotebook ? readMarkdownWorkspaceState() : null;
   elements.toolCategory.textContent = metadata.category;
   elements.toolTitle.textContent = metadata.name;
+  elements.toolFeedbackLink.href = makeToolFeedbackLink(metadata);
+  elements.toolFeedbackLink.setAttribute("aria-label", `Send feedback about ${metadata.name}`);
   elements.toolSummary.textContent = metadata.summary;
+  elements.runTool.textContent = getRunButtonLabel(state.selectedTool);
   elements.toolTags.textContent = "";
   const inputRequired = toolRequiresInput(state.selectedTool);
+  elements.editorGrid.hidden = isStandaloneWorkspace;
+  elements.resultPanel.hidden = isStandaloneWorkspace;
+  elements.markdownWorkspace.hidden = !isStandaloneWorkspace;
+  if (!isStandaloneWorkspace) {
+    elements.markdownWorkspace.textContent = "";
+  }
   elements.inputPanel.hidden = !inputRequired;
   elements.editorGrid.classList.toggle("no-input", !inputRequired);
+  elements.editorGrid.classList.toggle(
+    "wide-options",
+    metadata.layout?.options === "wide" || metadata.optionsLayout === "wide"
+  );
+  elements.optionsPanel.classList.toggle("pcr-primer-design-options", metadata.id === PCR_PRIMER_DESIGN_TOOL_ID);
   renderSplitInputPanel(state.selectedTool);
   updateInputFileUi(state.selectedTool);
   renderToolOptions(metadata.options ?? []);
+  renderInputPlacementOptions(state.selectedTool);
+  wireDependentToolOptions(metadata.options ?? []);
+  updateSamBamInputModeUi();
+  updateVcfInputModeUi();
+  updateAlignmentViewerInputUi();
+  updateFastaSourceInputUi();
+  updateFastaRegionExtractorSourceUi();
+  updateBiologicalRecordFormatConverterInputUi();
+  updateProteinStructureViewerUi();
+  sangerTraceWorkspace.update();
+  updatePcrPrimerDesignUi();
+  updateMarkdownInputUi();
+  if (isMarkdownNotebook) {
+    renderMarkdownWorkspace(markdownWorkspaceState);
+  }
+  workspaceInputSources.renderToolSource();
 
   for (const tag of metadata.tags) {
     const item = document.createElement("button");
@@ -1175,122 +958,92 @@ function renderSelectedTool() {
   updateInputActionButtons();
 }
 
-function toolRequiresInput(tool) {
-  return tool?.metadata?.inputRequired !== false;
+function getRunButtonLabel(...args) {
+  return toolInputShell.getRunButtonLabel(...args);
 }
 
-function getToolInputFileUi(tool) {
-  const metadata = tool?.metadata ?? {};
-  if (metadata.inputRequired === false) {
-    return {
-      dropLabel: "No input file needed",
-      accept: ""
-    };
-  }
-  const workflowInputs = metadata.workflow?.inputs ?? [];
-  const inputTypeLabel = String(metadata.inputType ?? "").trim();
-  const inputType = inputTypeLabel.toLowerCase();
-  const category = (metadata.category ?? "").toLowerCase();
-  const tags = (metadata.tags ?? []).map((tag) => String(tag).toLowerCase());
-  const sequenceInput = workflowInputs.find((input) => input.kind === "sequence-records");
-  const hasSequenceInput = Boolean(sequenceInput) || inputType.includes("sequence");
-  const hasTableInput =
-    workflowInputs.some((input) => input.kind === "table") ||
-    category.includes("table") ||
-    tags.some((tag) => ["table", "csv", "tsv"].includes(tag));
-
-  if (hasTableInput && !hasSequenceInput) {
-    return {
-      dropLabel: "Drop a CSV, TSV, or text table here",
-      accept: ".csv,.tsv,.tab,.txt"
-    };
-  }
-
-  if (inputType.includes("protein sequence")) {
-    return {
-      dropLabel: `Drop a ${formatInputTypeForDropLabel(inputTypeLabel)} file here`,
-      accept: ".fa,.fasta,.faa,.txt,.seq"
-    };
-  }
-
-  if (inputType.includes("dna") || inputType.includes("rna")) {
-    return {
-      dropLabel: inputType.includes("sequence")
-        ? `Drop a ${formatInputTypeForDropLabel(inputTypeLabel)} file here`
-        : "Drop a DNA/RNA sequence file here",
-      accept: ".fa,.fasta,.fna,.ffn,.txt,.gb,.gbk,.genbank,.embl,.seq"
-    };
-  }
-
-  const alphabet = sequenceInput?.alphabet ?? inputType;
-  if (hasSequenceInput && String(alphabet).includes("protein")) {
-    return {
-      dropLabel: "Drop a protein sequence file here",
-      accept: ".fa,.fasta,.faa,.txt,.seq"
-    };
-  }
-
-  if (
-    hasSequenceInput &&
-    (String(alphabet).includes("dna") ||
-      String(alphabet).includes("rna") ||
-      inputType.includes("dna") ||
-      inputType.includes("rna"))
-  ) {
-    return {
-      dropLabel: "Drop a DNA/RNA sequence file here",
-      accept: ".fa,.fasta,.fna,.ffn,.txt,.gb,.gbk,.genbank,.embl,.seq"
-    };
-  }
-
-  if (hasSequenceInput) {
-    return {
-      dropLabel: "Drop a sequence file here",
-      accept: ".fa,.fasta,.txt,.seq"
-    };
-  }
-
-  return {
-    dropLabel: "Drop a text file here",
-    accept: ".txt,.csv,.tsv,.tab,.fa,.fasta,.seq"
-  };
+function toolRequiresInput(...args) {
+  return toolInputShell.toolRequiresInput(...args);
 }
 
-function formatInputTypeForDropLabel(inputTypeLabel) {
-  if (/^(DNA|RNA|CSV|TSV|FASTA)\b/.test(inputTypeLabel)) {
-    return inputTypeLabel;
-  }
-  return `${inputTypeLabel.slice(0, 1).toLowerCase()}${inputTypeLabel.slice(1)}`;
+function getToolInputFileUi(...args) {
+  return toolInputShell.getToolInputFileUi(...args);
 }
 
-function updateInputFileUi(tool) {
-  const isSplitInput = Boolean(tool?.metadata?.splitInput);
-  elements.dropZone.hidden = isSplitInput;
-  elements.fileInput.closest(".file-button").hidden = isSplitInput;
-  elements.sequenceInput.hidden = isSplitInput;
-  if (isSplitInput) {
-    return;
-  }
-  const inputUi = getToolInputFileUi(tool);
-  elements.dropZoneLabel.textContent = inputUi.dropLabel;
-  elements.fileInput.setAttribute("accept", inputUi.accept);
+function getDirectInputFileOptionId(...args) {
+  return toolInputShell.getDirectInputFileOptionId(...args);
+}
+
+function getCurrentDirectInputFile(...args) {
+  return toolInputShell.getCurrentDirectInputFile(...args);
+}
+
+function clearDirectInputFile(...args) {
+  return toolInputShell.clearDirectInputFile(...args);
+}
+
+function setDirectInputFile(...args) {
+  return toolInputShell.setDirectInputFile(...args);
+}
+
+function updateDirectInputFileStatus(...args) {
+  return toolInputShell.updateDirectInputFileStatus(...args);
+}
+
+function updateInputFileUi(...args) {
+  return toolInputShell.updateInputFileUi(...args);
+}
+
+function renderInputPlacementOptions(...args) {
+  return toolInputShell.renderInputPlacementOptions(...args);
 }
 
 function renderSplitInputPanel(tool) {
   const splitInput = tool?.metadata?.splitInput;
   elements.splitInputPanel.textContent = "";
+  elements.splitInputPanel.classList.remove("sanger-trace-workspace");
   elements.splitInputPanel.hidden = !splitInput;
   if (!splitInput) {
+    return;
+  }
+  if (isSangerTraceViewerTool(tool)) {
+    sangerTraceWorkspace.render(tool);
+    return;
+  }
+  if (isAlignmentViewerTool(tool)) {
+    renderAlignmentViewerTabbedInput(tool);
+    return;
+  }
+  if (isBiologicalRecordTabbedInputTool(tool)) {
+    renderBiologicalRecordTabbedInput(tool);
+    return;
+  }
+  if (isReadMappingCoverageTool(tool)) {
+    renderReadMappingCoverageInput(tool);
     return;
   }
   const exampleParts = splitInputExampleParts(tool);
   const makePanel = (index) => {
     const definedPanel = (splitInput.panels ?? [])[index];
+    const repeatPanel = splitInput.additionalPanelTemplate ?? splitInput.repeatPanel;
+    if (!definedPanel && repeatPanel) {
+      const parsedRepeatFromIndex = Number.parseInt(splitInput.repeatFromIndex, 10);
+      const repeatFromIndex = Number.isFinite(parsedRepeatFromIndex)
+        ? parsedRepeatFromIndex
+        : (splitInput.panels ?? []).length;
+      const repeatNumber = Math.max(1, index - repeatFromIndex + 1);
+      const labelBase = repeatPanel.label ?? "Input";
+      return {
+        ...repeatPanel,
+        id: `${repeatPanel.idPrefix ?? repeatPanel.id ?? "input"}-${repeatNumber}`,
+        label: repeatPanel.numberedLabel === false ? labelBase : `${labelBase} ${repeatNumber}`
+      };
+    }
     const listLabel = `List ${String.fromCharCode(65 + index)}`;
     return definedPanel ?? {
       id: `input-${index + 1}`,
       label: listLabel,
-      dropLabel: `Drop ${listLabel.toLowerCase()} here`,
+      dropLabel: `Drop ${listLabel} plain-text, CSV, or TSV items here`,
       accept: (splitInput.panels ?? [])[0]?.accept ?? ".txt,.csv,.tsv,.tab"
     };
   };
@@ -1306,34 +1059,55 @@ function renderSplitInputPanel(tool) {
     const fileInput = document.createElement("input");
     fileInput.type = "file";
     fileInput.accept = panel.accept ?? ".txt,.csv,.tsv,.tab";
+    fileInput.multiple = Boolean(panel.multipleFiles);
     const fileText = document.createElement("span");
-    fileText.textContent = "Choose file";
+    fileText.textContent = panel.multipleFiles ? "Choose files" : "Choose file";
     fileLabel.append(fileInput, fileText);
     heading.append(title, fileLabel);
+    const description = document.createElement("p");
+    description.className = "split-input-description";
+    description.textContent = panel.description ?? "";
+    description.hidden = !panel.description;
     const dropZone = document.createElement("div");
     dropZone.className = "drop-zone split-drop-zone";
-    dropZone.textContent = panel.dropLabel ?? `Drop ${title.textContent} here`;
+    dropZone.textContent = panel.dropLabel ?? `Drop ${title.textContent} input here`;
     const textarea = document.createElement("textarea");
     textarea.className = "split-input-textarea";
     textarea.dataset.splitInputIndex = String(index);
     textarea.spellcheck = false;
     textarea.wrap = "off";
-    textarea.value = exampleParts[index] ?? "";
-    const loadFile = async (file) => {
-      if (!file) {
+    textarea.value = formatExampleInputForDisplay(exampleParts[index] ?? "");
+    if (panel.placeholder) {
+      textarea.placeholder = panel.placeholder;
+    }
+    const loadFiles = async (fileList) => {
+      const files = Array.from(fileList ?? []).filter(Boolean);
+      if (files.length === 0) {
         return;
       }
-      if (file.size > 25 * 1024 * 1024) {
-        addMessage(`${file.name}: file is larger than 25 MB.`, "warning");
+      if (!panel.multipleFiles && files.length > 1) {
+        files.splice(1);
+      }
+      const oversized = files.find((file) => file.size > 25 * 1024 * 1024);
+      if (oversized) {
+        addMessage(`${oversized.name}: file is larger than 25 MB.`, "warning");
         return;
       }
-      textarea.value = await file.text();
+      const texts = [];
+      for (const file of files) {
+        texts.push(await readToolInputFileText(file, { onMessage: addMessage }));
+      }
+      textarea.value = texts.join("\n");
       clearToolOutput();
       updateInputActionButtons();
-      addMessage(`Loaded ${file.name} (${file.size.toLocaleString()} bytes).`);
+      updateToolOptionSuggestions();
+      updateProteinStructureViewerUi();
+      addMessage(files.length === 1
+        ? `Loaded ${files[0].name} (${files[0].size.toLocaleString()} bytes).`
+        : `Loaded ${files.length.toLocaleString()} files into ${panel.label ?? "input"}.`);
     };
     fileInput.addEventListener("change", async () => {
-      await loadFile(fileInput.files?.[0]);
+      await loadFiles(fileInput.files);
       fileInput.value = "";
     });
     dropZone.addEventListener("dragover", (event) => {
@@ -1344,31 +1118,985 @@ function renderSplitInputPanel(tool) {
     dropZone.addEventListener("drop", async (event) => {
       event.preventDefault();
       dropZone.classList.remove("drag-over");
-      await loadFile(event.dataTransfer.files?.[0]);
+      await loadFiles(event.dataTransfer.files);
     });
-    textarea.addEventListener("input", updateInputActionButtons);
-    section.append(heading, dropZone, textarea);
+    textarea.addEventListener("input", () => {
+      updateInputActionButtons();
+      updateToolOptionSuggestions();
+      updateProteinStructureViewerUi();
+    });
+    section.append(heading, description, dropZone, textarea);
     elements.splitInputPanel.append(section);
   };
-  for (const [index, panel] of (splitInput.panels ?? []).entries()) {
-    appendSection(index, panel);
+  const sectionCount = Math.max((splitInput.panels ?? []).length, exampleParts.length);
+  for (let index = 0; index < sectionCount; index += 1) {
+    appendSection(index, makePanel(index));
   }
   if (splitInput.allowAdd) {
+    const parsedMaxPanels = Number.parseInt(splitInput.maxPanels, 10);
+    const maxPanels = Number.isFinite(parsedMaxPanels) && parsedMaxPanels > 0 ? parsedMaxPanels : Infinity;
     const actions = document.createElement("div");
     actions.className = "split-input-actions";
     const addButton = document.createElement("button");
     addButton.type = "button";
     addButton.className = "secondary-button";
     addButton.textContent = splitInput.addLabel ?? "Add input";
+    const updateAddButtonVisibility = () => {
+      const panelCount = elements.splitInputPanel.querySelectorAll(".split-input-textarea").length;
+      actions.hidden = panelCount >= maxPanels;
+    };
     addButton.addEventListener("click", () => {
       const index = elements.splitInputPanel.querySelectorAll(".split-input-textarea").length;
+      if (index >= maxPanels) {
+        updateAddButtonVisibility();
+        return;
+      }
       appendSection(index, makePanel(index));
       elements.splitInputPanel.append(actions);
       clearToolOutput();
       updateInputActionButtons();
+      updateAddButtonVisibility();
     });
     actions.append(addButton);
     elements.splitInputPanel.append(actions);
+    updateAddButtonVisibility();
+  }
+}
+
+const READ_MAPPING_READ_LAYOUT_MODES = {
+  single: { label: "Single-end" },
+  paired: { label: "Paired-end" }
+};
+
+const ALIGNMENT_VIEWER_ALIGNMENT_MODES = {
+  "sam-text": {
+    tabText: "SAM / SAM.GZ",
+    description: "Paste SAM text below or use a SAM/SAM.GZ file for larger local scans."
+  },
+  "indexed-bam": {
+    tabText: "Indexed BAM + BAI/CSI",
+    description: "Choose a BAM file with its matching BAI or CSI index for a bounded region query."
+  }
+};
+
+const ALIGNMENT_VIEWER_VCF_MODES = {
+  "paste-upload": {
+    tabText: "Paste/upload VCF",
+    description: "Paste VCF text below or choose a VCF/VCF.GZ file to scan for the selected region."
+  },
+  "indexed-vcf": {
+    tabText: "Indexed VCF + TBI/CSI",
+    description: "Choose a bgzip-compressed VCF.GZ file with its matching TBI or CSI index."
+  }
+};
+
+const ALIGNMENT_VIEWER_REFERENCE_MODES = {
+  none: {
+    tabText: "No reference",
+    description: "Use placeholder bases from the alignment region."
+  },
+  loaded: {
+    tabText: "Plain sequence or FASTA",
+    description: "Paste one reference sequence or FASTA record, or choose a small FASTA/FASTA.GZ file."
+  },
+  flatfile: {
+    tabText: "Single annotated record",
+    description: "Paste a GenBank, DDBJ, or EMBL nucleotide reference record."
+  },
+  "gff3-fasta": {
+    tabText: "GFF3 + FASTA",
+    description: "Paste GFF3 annotation rows with the matching reference FASTA."
+  },
+  "gtf-fasta": {
+    tabText: "GTF + FASTA",
+    description: "Paste GTF annotation rows with the matching reference FASTA."
+  },
+  "bed-fasta": {
+    tabText: "BED + FASTA",
+    description: "Paste BED interval rows with the matching reference FASTA."
+  },
+  indexed: {
+    tabText: "FASTA + FAI",
+    description: "Choose an uncompressed FASTA file and matching .fai index."
+  },
+  bgzf: {
+    tabText: "BGZF FASTA + FAI + GZI",
+    description: "Choose a BGZF-compressed FASTA with matching .fai and .gzi indexes."
+  }
+};
+
+const ALIGNMENT_VIEWER_PAIRED_REFERENCE_MODES = new Set(["gff3-fasta", "gtf-fasta", "bed-fasta"]);
+
+function renderAlignmentViewerTabbedInput(tool) {
+  const splitInput = tool.metadata.splitInput;
+  const exampleParts = splitInputExampleParts(tool);
+  elements.splitInputPanel.hidden = false;
+  elements.splitInputPanel.textContent = "";
+
+  const wrapper = document.createElement("section");
+  wrapper.id = "alignmentViewerInputPanel";
+  wrapper.className = "alignment-viewer-input-panel";
+  wrapper.append(
+    createAlignmentViewerAlignmentCard(splitInput.panels?.[0], exampleParts[0] ?? ""),
+    createAlignmentViewerVcfCard(splitInput.panels?.[1], exampleParts[1] ?? ""),
+    createAlignmentViewerReferenceCard()
+  );
+  elements.splitInputPanel.append(wrapper);
+  updateAlignmentViewerInputUi();
+}
+
+function createAlignmentViewerCard({ id, title, modes, selectedMode, ariaLabel, onSelect }) {
+  const card = document.createElement("section");
+  card.className = "alignment-viewer-input-card";
+  card.dataset.alignmentViewerCard = id;
+  const heading = document.createElement("div");
+  heading.className = "alignment-viewer-input-card-heading";
+  const titleElement = document.createElement("h4");
+  titleElement.textContent = title;
+  const tabs = createTabbedInputWorkflowTabs({
+    document,
+    modes,
+    selectedMode,
+    ariaLabel,
+    onSelect
+  });
+  heading.append(titleElement, tabs);
+  const description = document.createElement("p");
+  description.className = "alignment-viewer-input-description";
+  description.dataset.modeDescription = "";
+  card.append(heading, description);
+  return card;
+}
+
+function createAlignmentViewerPaneHeading(text) {
+  const heading = document.createElement("h5");
+  heading.className = "alignment-viewer-pane-heading";
+  heading.textContent = text;
+  return heading;
+}
+
+function createAlignmentViewerSamSummaryElement() {
+  const summary = document.createElement("div");
+  summary.className = "alignment-viewer-source-summary";
+  summary.dataset.alignmentViewerSamSummary = "";
+  return summary;
+}
+
+function createAlignmentViewerAlignmentCard(panel, exampleText) {
+  const card = createAlignmentViewerCard({
+    id: "alignment",
+    title: "SAM alignments",
+    modes: ALIGNMENT_VIEWER_ALIGNMENT_MODES,
+    selectedMode: getToolOptionValue("dataSourceMode", "sam-text"),
+    ariaLabel: "SAM alignment source",
+    onSelect: (mode) => setAlignmentViewerMode("dataSourceMode", mode)
+  });
+  const samPane = document.createElement("div");
+  samPane.dataset.alignmentViewerModePane = "sam-text";
+  samPane.className = "alignment-viewer-input-pane";
+  samPane.append(
+    createAlignmentViewerPaneHeading("SAM input"),
+    createAlignmentViewerFileSlot({
+      id: "samInputFile",
+      label: "SAM/SAM.GZ file",
+      accept: ".sam,.sam.gz,.gz",
+      dropLabel: "Drop SAM or SAM.GZ here"
+    }),
+    createAlignmentViewerSamSummaryElement(),
+    createAlignmentViewerTextarea({
+      panel,
+      index: 0,
+      value: exampleText,
+      placeholder: panel?.placeholder ?? "Paste SAM text here."
+    })
+  );
+  const bamPane = document.createElement("div");
+  bamPane.dataset.alignmentViewerModePane = "indexed-bam";
+  bamPane.className = "alignment-viewer-input-pane alignment-viewer-file-grid alignment-viewer-paired-file-grid";
+  bamPane.append(
+    createAlignmentViewerPaneHeading("Indexed BAM input"),
+    createAlignmentViewerFileSlot({
+      id: "indexedBamFile",
+      label: "BAM file",
+      accept: ".bam",
+      dropLabel: "Drop BAM file here"
+    }),
+    createAlignmentViewerFileSlot({
+      id: "bamIndexFile",
+      label: "BAI or CSI index",
+      accept: ".bai,.csi",
+      dropLabel: "Drop matching BAI or CSI index here"
+    })
+  );
+  card.append(samPane, bamPane);
+  return card;
+}
+
+function createAlignmentViewerVcfCard(panel, exampleText) {
+  const card = createAlignmentViewerCard({
+    id: "vcf",
+    title: "Variant overlay",
+    modes: ALIGNMENT_VIEWER_VCF_MODES,
+    selectedMode: getToolOptionValue("vcfSourceMode", "paste-upload"),
+    ariaLabel: "Variant overlay source",
+    onSelect: (mode) => setAlignmentViewerMode("vcfSourceMode", mode)
+  });
+  const pastePane = document.createElement("div");
+  pastePane.dataset.alignmentViewerModePane = "paste-upload";
+  pastePane.className = "alignment-viewer-input-pane";
+  pastePane.append(
+    createAlignmentViewerFileSlot({
+      id: "vcfInputFile",
+      label: "VCF/VCF.GZ file",
+      accept: ".vcf,.vcf.gz,.gz",
+      dropLabel: "Drop optional VCF or VCF.GZ here"
+    }),
+    createAlignmentViewerTextarea({
+      panel,
+      index: 1,
+      value: exampleText,
+      placeholder: panel?.placeholder ?? "Paste optional VCF text here."
+    })
+  );
+  const indexedPane = document.createElement("div");
+  indexedPane.dataset.alignmentViewerModePane = "indexed-vcf";
+  indexedPane.className = "alignment-viewer-input-pane alignment-viewer-file-grid alignment-viewer-paired-file-grid";
+  indexedPane.append(
+    createAlignmentViewerFileSlot({
+      id: "indexedVcfFile",
+      label: "Indexed VCF.GZ file",
+      accept: ".vcf.gz,.bgz,.gz",
+      dropLabel: "Drop bgzip VCF.GZ here"
+    }),
+    createAlignmentViewerFileSlot({
+      id: "indexFile",
+      label: "TBI or CSI index",
+      accept: ".tbi,.csi",
+      dropLabel: "Drop matching TBI or CSI index here"
+    })
+  );
+  card.append(pastePane, indexedPane);
+  return card;
+}
+
+function createAlignmentViewerReferenceCard() {
+  const card = createAlignmentViewerCard({
+    id: "reference",
+    title: "Reference genome",
+    modes: ALIGNMENT_VIEWER_REFERENCE_MODES,
+    selectedMode: getToolOptionValue("referenceGenomeMode", "none"),
+    ariaLabel: "Reference genome source",
+    onSelect: (mode) => setAlignmentViewerMode("referenceGenomeMode", mode)
+  });
+  const nonePane = document.createElement("p");
+  nonePane.dataset.alignmentViewerModePane = "none";
+  nonePane.className = "alignment-viewer-empty-pane";
+  nonePane.textContent = "No reference FASTA will be used.";
+  const fastaPane = document.createElement("div");
+  fastaPane.dataset.alignmentViewerModePaneValues = "loaded indexed bgzf";
+  fastaPane.className = "alignment-viewer-input-pane alignment-viewer-file-grid alignment-viewer-reference-fasta-pane";
+  const fastaSlot = createAlignmentViewerFileSlot({
+    id: "referenceGenomeFastaFile",
+    label: "Reference sequence / FASTA",
+    accept: ".fa,.fasta,.fna,.ffn,.txt,.fa.gz,.fasta.gz,.fna.gz,.ffn.gz,.gz,.bgz",
+    dropLabel: "Drop one reference sequence or FASTA here"
+  });
+  fastaSlot.dataset.alignmentViewerModePaneValues = "loaded indexed bgzf";
+  const faiSlot = createAlignmentViewerFileSlot({
+    id: "referenceGenomeFaiFile",
+    label: "Matching .fai",
+    accept: ".fai",
+    dropLabel: "Drop matching .fai here"
+  });
+  faiSlot.dataset.alignmentViewerModePaneValues = "indexed bgzf";
+  const gziSlot = createAlignmentViewerFileSlot({
+    id: "referenceGenomeGziFile",
+    label: "Matching .gzi",
+    accept: ".gzi",
+    dropLabel: "Drop matching .gzi here"
+  });
+  gziSlot.dataset.alignmentViewerModePaneValues = "bgzf";
+  const referenceText = createAlignmentViewerReferenceTextarea();
+  referenceText.dataset.alignmentViewerModePaneValues = "loaded";
+  fastaPane.append(fastaSlot, referenceText, faiSlot, gziSlot);
+  card.append(
+    nonePane,
+    fastaPane,
+    createAlignmentViewerReferenceTextPane({
+      mode: "flatfile",
+      inputKey: "flatfile",
+      label: "Annotated flatfile record",
+      dropLabel: "Drop GenBank, DDBJ, or EMBL nucleotide record here",
+      placeholder: "Paste a GenBank, DDBJ, or EMBL nucleotide reference record here."
+    }),
+    createAlignmentViewerReferencePairedPane({
+      mode: "gff3-fasta",
+      annotationKey: "gff3-fasta-annotation",
+      fastaKey: "gff3-fasta-fasta",
+      annotationLabel: "GFF3 annotation rows",
+      annotationDropLabel: "Drop GFF3 annotation rows here",
+      annotationPlaceholder: "Paste GFF3 annotation rows here.",
+      fastaLabel: "Reference FASTA",
+      fastaDropLabel: "Drop matching FASTA here",
+      fastaPlaceholder: "Paste the matching reference FASTA here."
+    }),
+    createAlignmentViewerReferencePairedPane({
+      mode: "gtf-fasta",
+      annotationKey: "gtf-fasta-annotation",
+      fastaKey: "gtf-fasta-fasta",
+      annotationLabel: "GTF annotation rows",
+      annotationDropLabel: "Drop GTF annotation rows here",
+      annotationPlaceholder: "Paste GTF annotation rows here.",
+      fastaLabel: "Reference FASTA",
+      fastaDropLabel: "Drop matching FASTA here",
+      fastaPlaceholder: "Paste the matching reference FASTA here."
+    }),
+    createAlignmentViewerReferencePairedPane({
+      mode: "bed-fasta",
+      annotationKey: "bed-fasta-annotation",
+      fastaKey: "bed-fasta-fasta",
+      annotationLabel: "BED interval rows",
+      annotationDropLabel: "Drop BED interval rows here",
+      annotationPlaceholder: "Paste BED interval rows here. BED coordinates are interpreted as 0-based half-open.",
+      fastaLabel: "Reference FASTA",
+      fastaDropLabel: "Drop matching FASTA here",
+      fastaPlaceholder: "Paste the matching reference FASTA here."
+    })
+  );
+  return card;
+}
+
+function createAlignmentViewerFileSlot({ id, label, accept, dropLabel }) {
+  const slot = document.createElement("div");
+  slot.className = "alignment-viewer-file-slot";
+  slot.dataset.fileSlot = id;
+  const heading = document.createElement("div");
+  heading.className = "alignment-viewer-file-slot-heading";
+  const title = document.createElement("strong");
+  title.textContent = label;
+  const browse = document.createElement("label");
+  browse.className = "file-button file-option-browse";
+  const input = document.createElement("input");
+  input.id = id;
+  input.type = "file";
+  input.accept = accept;
+  input.setAttribute("aria-label", label);
+  const browseText = document.createElement("span");
+  browseText.textContent = "Choose file";
+  browse.append(input, browseText);
+  heading.append(title, browse);
+  const dropZone = document.createElement("div");
+  dropZone.className = "drop-zone alignment-viewer-file-drop-zone";
+  dropZone.tabIndex = 0;
+  dropZone.textContent = dropLabel;
+  const status = document.createElement("div");
+  status.id = `${id}Status`;
+  status.className = "alignment-viewer-file-status";
+  input.addEventListener("change", () => {
+    if (id === "referenceGenomeFastaFile" && input.files?.length) {
+      const referenceText = document.querySelector("#referenceGenomeFastaFileText");
+      if (referenceText) {
+        referenceText.value = "";
+      }
+    }
+    updateAlignmentViewerFileStatuses();
+    clearToolOutput();
+  });
+  dropZone.addEventListener("dragover", (event) => {
+    event.preventDefault();
+    dropZone.classList.add("drag-over");
+  });
+  dropZone.addEventListener("dragleave", () => dropZone.classList.remove("drag-over"));
+  dropZone.addEventListener("drop", (event) => {
+    event.preventDefault();
+    dropZone.classList.remove("drag-over");
+    setFileOptionFiles(input, event.dataTransfer?.files, false);
+  });
+  dropZone.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter" && event.key !== " ") {
+      return;
+    }
+    event.preventDefault();
+    input.click();
+  });
+  slot.append(heading, dropZone, status);
+  return slot;
+}
+
+function createAlignmentViewerReferenceTextPane({ mode, inputKey, label, dropLabel, placeholder }) {
+  const pane = document.createElement("div");
+  pane.dataset.alignmentViewerModePane = mode;
+  pane.className = "alignment-viewer-input-pane";
+  pane.append(createAlignmentViewerReferenceTextSection({
+    inputKey,
+    label,
+    dropLabel,
+    placeholder
+  }));
+  return pane;
+}
+
+function createAlignmentViewerReferencePairedPane({
+  mode,
+  annotationKey,
+  fastaKey,
+  annotationLabel,
+  annotationDropLabel,
+  annotationPlaceholder,
+  fastaLabel,
+  fastaDropLabel,
+  fastaPlaceholder
+}) {
+  const pane = document.createElement("div");
+  pane.dataset.alignmentViewerModePane = mode;
+  pane.className = "alignment-viewer-input-pane bio-record-paired-input-grid";
+  pane.append(
+    createAlignmentViewerReferenceTextSection({
+      inputKey: annotationKey,
+      label: annotationLabel,
+      dropLabel: annotationDropLabel,
+      placeholder: annotationPlaceholder
+    }),
+    createAlignmentViewerReferenceTextSection({
+      inputKey: fastaKey,
+      label: fastaLabel,
+      dropLabel: fastaDropLabel,
+      placeholder: fastaPlaceholder
+    })
+  );
+  return pane;
+}
+
+function createAlignmentViewerReferenceTextSection({ inputKey, label, dropLabel, placeholder }) {
+  const section = document.createElement("section");
+  section.className = "bio-record-input-section alignment-viewer-reference-text-section";
+  const heading = document.createElement("div");
+  heading.className = "split-input-heading";
+  const title = document.createElement("h4");
+  title.textContent = label;
+  const fileLabel = document.createElement("label");
+  fileLabel.className = "file-button";
+  const fileInput = document.createElement("input");
+  fileInput.type = "file";
+  fileInput.accept = ".txt,.gb,.gbk,.gbff,.genbank,.embl,.gff,.gff3,.gtf,.bed,.fa,.fasta,.fna";
+  fileInput.setAttribute("aria-label", label);
+  const fileText = document.createElement("span");
+  fileText.textContent = "Choose file";
+  fileLabel.append(fileInput, fileText);
+  heading.append(title, fileLabel);
+
+  const dropZone = document.createElement("div");
+  dropZone.className = "drop-zone split-drop-zone";
+  dropZone.textContent = dropLabel;
+  const textarea = document.createElement("textarea");
+  textarea.className = "split-input-textarea alignment-viewer-reference-textarea";
+  textarea.dataset.alignmentViewerReferenceInput = inputKey;
+  textarea.spellcheck = false;
+  textarea.wrap = "off";
+  textarea.placeholder = placeholder;
+
+  const loadFile = async (file) => {
+    if (!file) {
+      return;
+    }
+    if (file.size > 25 * 1024 * 1024) {
+      addMessage(`${file.name}: file is larger than 25 MB.`, "warning");
+      return;
+    }
+    textarea.value = await readToolInputFileText(file, { onMessage: addMessage });
+    clearToolOutput();
+    updateInputActionButtons();
+    updateToolOptionSuggestions();
+    addMessage(`Loaded ${file.name} (${file.size.toLocaleString()} bytes).`);
+  };
+  fileInput.addEventListener("change", async () => {
+    await loadFile(fileInput.files?.[0]);
+    fileInput.value = "";
+  });
+  dropZone.addEventListener("dragover", (event) => {
+    event.preventDefault();
+    dropZone.classList.add("drag-over");
+  });
+  dropZone.addEventListener("dragleave", () => dropZone.classList.remove("drag-over"));
+  dropZone.addEventListener("drop", async (event) => {
+    event.preventDefault();
+    dropZone.classList.remove("drag-over");
+    await loadFile(event.dataTransfer.files?.[0]);
+  });
+  textarea.addEventListener("input", () => {
+    updateInputActionButtons();
+    clearToolOutput();
+  });
+
+  section.append(heading, dropZone, textarea);
+  return section;
+}
+
+function createAlignmentViewerReferenceTextarea() {
+  const textarea = document.createElement("textarea");
+  textarea.id = "referenceGenomeFastaFileText";
+  textarea.name = "referenceGenomeFastaFileText";
+  textarea.className = "file-option-textarea split-input-textarea alignment-viewer-reference-textarea";
+  textarea.spellcheck = false;
+  textarea.wrap = "off";
+  textarea.rows = 8;
+  textarea.value = formatExampleInputForDisplay(alignmentViewerReferenceExample);
+  textarea.placeholder = "Paste reference FASTA here";
+  textarea.setAttribute("aria-label", "Reference FASTA text");
+  textarea.addEventListener("input", () => {
+    const fileInput = document.querySelector("#referenceGenomeFastaFile");
+    if (textarea.value.trim() && fileInput?.files?.length) {
+      fileInput.value = "";
+      updateAlignmentViewerFileStatuses();
+    }
+    updateInputActionButtons();
+    clearToolOutput();
+  });
+  return textarea;
+}
+
+function createAlignmentViewerTextarea({ panel, index, value, placeholder }) {
+  const textarea = document.createElement("textarea");
+  textarea.className = "split-input-textarea alignment-viewer-textarea";
+  textarea.dataset.splitInputIndex = String(index);
+  textarea.spellcheck = false;
+  textarea.wrap = "off";
+  textarea.value = formatExampleInputForDisplay(value ?? "");
+  textarea.placeholder = placeholder;
+  textarea.setAttribute("aria-label", panel?.label ?? `Input ${index + 1}`);
+  textarea.addEventListener("input", () => {
+    updateInputActionButtons();
+    updateToolOptionSuggestions();
+    updateAlignmentViewerInputUi();
+    clearToolOutput();
+  });
+  return textarea;
+}
+
+function setAlignmentViewerMode(optionId, mode) {
+  setToolOptionValue(optionId, mode);
+  dispatchToolOptionChange(optionId);
+  updateAlignmentViewerInputUi();
+  clearToolOutput();
+}
+
+function updateAlignmentViewerCard(card, mode, modes) {
+  if (!card) {
+    return;
+  }
+  card.dataset.alignmentViewerSelectedMode = mode;
+  updateTabbedInputWorkflowTabs(card, mode);
+  const description = card.querySelector("[data-mode-description]");
+  if (description) {
+    description.textContent = modes[mode]?.description ?? "";
+  }
+  card
+    .querySelectorAll("[data-alignment-viewer-mode-pane], [data-alignment-viewer-mode-pane-values]")
+    .forEach((pane) => {
+      const values = (pane.dataset.alignmentViewerModePaneValues ?? pane.dataset.alignmentViewerModePane ?? "")
+        .split(/\s+/u)
+        .filter(Boolean);
+      pane.hidden = !values.includes(mode);
+    });
+}
+
+function updateAlignmentViewerFileStatuses() {
+  const panel = document.querySelector("#alignmentViewerInputPanel");
+  if (!panel) {
+    return;
+  }
+  panel.querySelectorAll(".alignment-viewer-file-slot").forEach((slot) => {
+    const input = slot.querySelector("input[type='file']");
+    const status = slot.querySelector(".alignment-viewer-file-status");
+    if (!input || !status) {
+      return;
+    }
+    const file = input.files?.[0];
+    status.textContent = file
+      ? `${file.name || "selected file"} (${Number(file.size || 0).toLocaleString()} bytes)`
+      : "No file selected";
+  });
+}
+
+function formatAlignmentViewerSamSummary(summary) {
+  const references = summary.references
+    .map((reference) => reference.name)
+    .filter(Boolean);
+  const parts = [];
+  if (references.length > 0) {
+    const displayed = references.slice(0, 6).join(", ");
+    const suffix = references.length > 6 ? `, +${references.length - 6} more` : "";
+    parts.push(`Detected ${references.length} reference${references.length === 1 ? "" : "s"}: ${displayed}${suffix}.`);
+  } else if (summary.alignmentLines > 0) {
+    parts.push(`Detected ${summary.alignmentLines.toLocaleString()} alignment${summary.alignmentLines === 1 ? "" : "s"} with no reference names.`);
+  } else {
+    parts.push("No SAM alignments detected yet.");
+  }
+  if (summary.sortOrder) {
+    parts.push(`Sort order: ${summary.sortOrder}.`);
+  }
+  if (summary.alignmentLines > 0) {
+    parts.push(`Preview scanned ${summary.alignmentLines.toLocaleString()} alignment${summary.alignmentLines === 1 ? "" : "s"}.`);
+  }
+  if (summary.truncated) {
+    parts.push("Preview truncated.");
+  }
+  return parts.join(" ");
+}
+
+function updateAlignmentViewerSamSummary(panel, summary) {
+  const summaryElement = panel?.querySelector("[data-alignment-viewer-sam-summary]");
+  if (!summaryElement) {
+    return;
+  }
+  summaryElement.textContent = formatAlignmentViewerSamSummary(summary);
+}
+
+function updateAlignmentViewerInputUi() {
+  if (!isAlignmentViewerTool()) {
+    return;
+  }
+  const panel = document.querySelector("#alignmentViewerInputPanel");
+  const hiddenSidebarGroups = ["alignmentSource", "variantOverlay", "referenceGenome"];
+  for (const id of hiddenSidebarGroups) {
+    const group = elements.toolOptions.querySelector(`[data-option-id="${id}"]`);
+    if (group) {
+      group.hidden = true;
+    }
+  }
+  if (!panel) {
+    return;
+  }
+  const alignmentMode = getToolOptionValue("dataSourceMode", "sam-text");
+  const vcfMode = getToolOptionValue("vcfSourceMode", "paste-upload");
+  const referenceMode = getToolOptionValue("referenceGenomeMode", "none");
+  updateAlignmentViewerCard(
+    panel.querySelector('[data-alignment-viewer-card="alignment"]'),
+    ALIGNMENT_VIEWER_ALIGNMENT_MODES[alignmentMode] ? alignmentMode : "sam-text",
+    ALIGNMENT_VIEWER_ALIGNMENT_MODES
+  );
+  updateAlignmentViewerCard(
+    panel.querySelector('[data-alignment-viewer-card="vcf"]'),
+    ALIGNMENT_VIEWER_VCF_MODES[vcfMode] ? vcfMode : "paste-upload",
+    ALIGNMENT_VIEWER_VCF_MODES
+  );
+  updateAlignmentViewerCard(
+    panel.querySelector('[data-alignment-viewer-card="reference"]'),
+    ALIGNMENT_VIEWER_REFERENCE_MODES[referenceMode] ? referenceMode : "none",
+    ALIGNMENT_VIEWER_REFERENCE_MODES
+  );
+  const samText = panel.querySelector('[data-split-input-index="0"]')?.value ?? "";
+  const samSummary = summarizeSamReferencesFromText(samText);
+  panel.dataset.referenceSuggestions = samSummary.references
+    .map((reference) => reference.name)
+    .filter(Boolean)
+    .join("\n");
+  updateAlignmentViewerSamSummary(panel, samSummary);
+  updateAlignmentViewerFileStatuses();
+  updateToolOptionSuggestions();
+}
+
+function getAlignmentViewerInputText() {
+  const separator = state.selectedTool?.metadata?.splitInput?.separator ?? "##VCF";
+  const panel = document.querySelector("#alignmentViewerInputPanel");
+  const samText = panel?.querySelector('[data-split-input-index="0"]')?.value ?? "";
+  const vcfText = getToolOptionValue("vcfSourceMode", "paste-upload") === "none"
+    ? ""
+    : panel?.querySelector('[data-split-input-index="1"]')?.value ?? "";
+  return [samText, vcfText].join(`\n${separator}\n`);
+}
+
+function makeAlignmentViewerReferenceTextFile(text, name) {
+  return {
+    text,
+    name,
+    size: new Blob([text]).size
+  };
+}
+
+function getAlignmentViewerReferenceText(inputKey) {
+  return document
+    .querySelector(`#alignmentViewerInputPanel [data-alignment-viewer-reference-input="${inputKey}"]`)
+    ?.value ?? "";
+}
+
+function getAlignmentViewerLoadedReferenceText() {
+  return document.querySelector("#alignmentViewerInputPanel #referenceGenomeFastaFileText")?.value ?? "";
+}
+
+function getAlignmentViewerSelectedMode(cardId, fallback = "") {
+  return document
+    .querySelector(`#alignmentViewerInputPanel [data-alignment-viewer-card="${cardId}"] [role="tab"][aria-selected="true"]`)
+    ?.dataset?.inputWorkflowMode ?? fallback;
+}
+
+function getAlignmentViewerReferenceBundleText(mode) {
+  if (mode === "flatfile") {
+    return getAlignmentViewerReferenceText("flatfile");
+  }
+  if (ALIGNMENT_VIEWER_PAIRED_REFERENCE_MODES.has(mode)) {
+    const annotation = getAlignmentViewerReferenceText(`${mode}-annotation`);
+    const fasta = getAlignmentViewerReferenceText(`${mode}-fasta`);
+    if (!annotation.trim() && !fasta.trim()) {
+      return "";
+    }
+    return `${annotation.trim()}\n##FASTA\n${fasta.trim()}\n`;
+  }
+  return "";
+}
+
+function getAlignmentViewerOptions(options) {
+  const mode = String(getAlignmentViewerSelectedMode(
+    "reference",
+    options.referenceGenomeMode ?? getToolOptionValue("referenceGenomeMode", "loaded")
+  ));
+  if (mode === "none") {
+    return {
+      ...options,
+      referenceGenomeMode: mode,
+      referenceGenomeFastaFile: null,
+      referenceGenomeFaiFile: null,
+      referenceGenomeGziFile: null
+    };
+  }
+  if (mode === "loaded") {
+    const referenceText = getAlignmentViewerLoadedReferenceText();
+    return {
+      ...options,
+      referenceGenomeMode: mode,
+      referenceGenomeFastaFile: options.referenceGenomeFastaFile?.stream || options.referenceGenomeFastaFile?.text
+        ? options.referenceGenomeFastaFile
+        : referenceText.trim()
+          ? makeAlignmentViewerReferenceTextFile(referenceText, "alignment-viewer-reference.fasta")
+          : null,
+      referenceGenomeFaiFile: null,
+      referenceGenomeGziFile: null
+    };
+  }
+  if (mode !== "flatfile" && !ALIGNMENT_VIEWER_PAIRED_REFERENCE_MODES.has(mode)) {
+    return ALIGNMENT_VIEWER_REFERENCE_MODES[mode]
+      ? { ...options, referenceGenomeMode: mode }
+      : options;
+  }
+  const referenceText = getAlignmentViewerReferenceBundleText(mode);
+  return {
+    ...options,
+    referenceGenomeMode: mode,
+    referenceGenomeFastaFile: referenceText.trim()
+      ? makeAlignmentViewerReferenceTextFile(referenceText, `alignment-viewer-reference-${mode}.txt`)
+      : null,
+    referenceGenomeFaiFile: null,
+    referenceGenomeGziFile: null
+  };
+}
+
+function renderReadMappingCoverageInput(tool) {
+  const splitInput = tool.metadata.splitInput;
+  const exampleParts = splitInputExampleParts(tool);
+  elements.splitInputPanel.hidden = false;
+  elements.splitInputPanel.textContent = "";
+
+  elements.splitInputPanel.append(
+    createReadMappingInputSlot({
+      panel: splitInput.panels?.[0],
+      title: splitInput.panels?.[0]?.label ?? "Reference",
+      dropLabel: splitInput.panels?.[0]?.dropLabel ?? "Drop one reference DNA/RNA sequence or FASTA records here",
+      accept: splitInput.panels?.[0]?.accept ?? ".txt,.fa,.fasta,.fna,.fa.gz,.fasta.gz,.fna.gz,.gz",
+      value: exampleParts[0] ?? "",
+      inputKey: "reference",
+      sectionClassName: "split-input-section"
+    }),
+    createReadMappingReadsSection(splitInput, exampleParts[1] ?? "")
+  );
+  setReadMappingCoverageReadLayout("single", { clearOutput: false });
+}
+
+function createReadMappingReadsSection(splitInput, readsExample) {
+  const section = document.createElement("section");
+  section.className = "split-input-section read-mapping-reads-section";
+  section.dataset.readMappingReadsSection = "true";
+  const heading = document.createElement("div");
+  heading.className = "split-input-heading";
+  const title = document.createElement("h4");
+  title.textContent = splitInput.panels?.[1]?.label ?? "Reads";
+  heading.append(title);
+
+  const tabs = createTabbedInputWorkflowTabs({
+    document,
+    modes: READ_MAPPING_READ_LAYOUT_MODES,
+    selectedMode: "single",
+    ariaLabel: "Read layout",
+    datasetKey: "readLayout",
+    onSelect: (mode) => setReadMappingCoverageReadLayout(mode)
+  });
+  for (const mode of Object.keys(READ_MAPPING_READ_LAYOUT_MODES)) {
+    const radio = document.createElement("input");
+    radio.type = "radio";
+    radio.name = "readLayout";
+    radio.value = mode;
+    radio.hidden = true;
+    radio.checked = mode === "single";
+    tabs.append(radio);
+  }
+  const readFormatDescription = document.createElement("p");
+  readFormatDescription.className = "split-input-description";
+  readFormatDescription.textContent = splitInput.panels?.[1]?.description ?? "";
+  readFormatDescription.hidden = !splitInput.panels?.[1]?.description;
+
+  const singlePanel = document.createElement("div");
+  singlePanel.className = "read-mapping-layout-panel";
+  singlePanel.dataset.readMappingLayoutPanel = "single";
+  singlePanel.append(createReadMappingInputSlot({
+    title: "Single-end reads",
+    dropLabel: splitInput.panels?.[1]?.dropLabel ?? "Drop FASTQ or FASTQ.GZ reads here",
+    accept: splitInput.panels?.[1]?.accept ?? ".fa,.fasta,.fna,.fa.gz,.fasta.gz,.fna.gz,.fastq,.fq,.fastq.gz,.fq.gz,.gz,.txt",
+    value: readsExample,
+    inputKey: "reads-single",
+    sectionClassName: "read-mapping-read-slot",
+    textareaClassName: "split-input-textarea read-mapping-read-textarea"
+  }));
+
+  const pairedPanel = document.createElement("div");
+  pairedPanel.className = "read-mapping-layout-panel paired-read-input-grid";
+  pairedPanel.dataset.readMappingLayoutPanel = "paired";
+  pairedPanel.hidden = true;
+  pairedPanel.append(
+    createReadMappingInputSlot({
+      title: "Read 1 FASTQ file",
+      dropLabel: "Drop R1 FASTQ here",
+      accept: splitInput.panels?.[1]?.accept ?? ".fa,.fasta,.fna,.fa.gz,.fasta.gz,.fna.gz,.fastq,.fq,.fastq.gz,.fq.gz,.gz,.txt",
+      value: "",
+      inputKey: "reads-r1",
+      fileButtonText: "Browse file",
+      pastePlaceholder: "Paste R1 FASTQ reads here",
+      showFileStatus: true,
+      sectionClassName: "read-mapping-read-slot",
+      textareaClassName: "split-input-textarea read-mapping-read-textarea"
+    }),
+    createReadMappingInputSlot({
+      title: "Read 2 FASTQ file",
+      dropLabel: "Drop R2 FASTQ here",
+      accept: splitInput.panels?.[1]?.accept ?? ".fa,.fasta,.fna,.fa.gz,.fasta.gz,.fna.gz,.fastq,.fq,.fastq.gz,.fq.gz,.gz,.txt",
+      value: "",
+      inputKey: "reads-r2",
+      fileButtonText: "Browse file",
+      pastePlaceholder: "Paste R2 FASTQ reads here",
+      showFileStatus: true,
+      sectionClassName: "read-mapping-read-slot",
+      textareaClassName: "split-input-textarea read-mapping-read-textarea"
+    })
+  );
+
+  section.append(heading, tabs, readFormatDescription, singlePanel, pairedPanel);
+  return section;
+}
+
+function createReadMappingInputSlot({
+  panel = {},
+  title,
+  dropLabel,
+  accept,
+  value,
+  inputKey,
+  fileButtonText = "Choose file",
+  pastePlaceholder,
+  showFileStatus = false,
+  sectionClassName,
+  textareaClassName = "split-input-textarea"
+}) {
+  const section = document.createElement("section");
+  section.className = sectionClassName;
+  section.dataset.readMappingInputSlot = inputKey;
+  const heading = document.createElement("div");
+  heading.className = "split-input-heading";
+  const headingTitle = document.createElement("h4");
+  headingTitle.textContent = title ?? panel.label ?? "Input";
+  const fileLabel = document.createElement("label");
+  fileLabel.className = "file-button";
+  const fileInput = document.createElement("input");
+  fileInput.type = "file";
+  fileInput.accept = accept ?? panel.accept ?? ".txt,.fa,.fasta,.fna,.fastq,.fq,.gz";
+  const fileText = document.createElement("span");
+  fileText.textContent = fileButtonText;
+  fileLabel.append(fileInput, fileText);
+  heading.append(headingTitle, fileLabel);
+
+  const description = document.createElement("p");
+  description.className = "split-input-description";
+  description.textContent = panel.description ?? "";
+  description.hidden = !panel.description;
+  const dropZone = document.createElement("div");
+  dropZone.className = "drop-zone split-drop-zone";
+  dropZone.textContent = dropLabel ?? panel.dropLabel ?? `Drop ${headingTitle.textContent} here`;
+  const fileStatus = document.createElement("p");
+  fileStatus.className = "file-option-status";
+  fileStatus.textContent = "No file selected";
+  fileStatus.hidden = !showFileStatus;
+  const textarea = document.createElement("textarea");
+  textarea.className = textareaClassName;
+  textarea.dataset.readMappingInput = inputKey;
+  textarea.spellcheck = false;
+  textarea.wrap = "off";
+  textarea.value = formatExampleInputForDisplay(value ?? "");
+  textarea.placeholder = pastePlaceholder ?? panel.placeholder ?? "";
+
+  const loadFile = async (file) => {
+    if (!file) return;
+    if (file.size > 25 * 1024 * 1024) {
+      addMessage(`${file.name}: file is larger than 25 MB.`, "warning");
+      return;
+    }
+    textarea.value = await readToolInputFileText(file, { onMessage: addMessage });
+    clearToolOutput();
+    updateInputActionButtons();
+    updateToolOptionSuggestions();
+    if (showFileStatus) {
+      fileStatus.textContent = file.name;
+    }
+    addMessage(`Loaded ${file.name} (${file.size.toLocaleString()} bytes).`);
+  };
+  fileInput.addEventListener("change", async () => {
+    await loadFile(fileInput.files?.[0]);
+    fileInput.value = "";
+  });
+  dropZone.addEventListener("dragover", (event) => {
+    event.preventDefault();
+    dropZone.classList.add("drag-over");
+  });
+  dropZone.addEventListener("dragleave", () => dropZone.classList.remove("drag-over"));
+  dropZone.addEventListener("drop", async (event) => {
+    event.preventDefault();
+    dropZone.classList.remove("drag-over");
+    await loadFile(event.dataTransfer.files?.[0]);
+  });
+  textarea.addEventListener("input", () => {
+    updateInputActionButtons();
+    updateToolOptionSuggestions();
+  });
+
+  section.append(heading, description, dropZone, fileStatus, textarea);
+  return section;
+}
+
+function setReadMappingCoverageReadLayout(mode, { clearOutput = true } = {}) {
+  const section = elements.splitInputPanel.querySelector("[data-read-mapping-reads-section]");
+  if (!section) return;
+  const readLayout = READ_MAPPING_READ_LAYOUT_MODES[mode] ? mode : "single";
+  section.dataset.readLayout = readLayout;
+  updateTabbedInputWorkflowTabs(section, readLayout, {
+    datasetKey: "readLayout",
+    tabSelector: ".file-source-tab"
+  });
+  section.querySelectorAll("input[name='readLayout']").forEach((input) => {
+    input.checked = input.value === readLayout;
+  });
+  section.querySelectorAll("[data-read-mapping-layout-panel]").forEach((panel) => {
+    panel.hidden = panel.dataset.readMappingLayoutPanel !== readLayout;
+  });
+  if (clearOutput) {
+    clearToolOutput();
+    updateInputActionButtons();
+    updateToolOptionSuggestions();
   }
 }
 
@@ -1382,13 +2110,624 @@ function splitInputExampleParts(tool) {
   return String(tool.example ?? "").split(pattern);
 }
 
+const BIOLOGICAL_RECORD_SOURCE_MODES = {
+  flatfile: {
+    inputFormat: "auto",
+    tabText: "Single annotated record",
+    annotationLabel: "Annotated flatfile record",
+    annotationDropLabel: "Drop GenBank, DDBJ, EMBL, GenPept, or UniProt record here",
+    annotationPlaceholder:
+      "Paste a GenBank, DDBJ, EMBL, GenPept, or UniProt record here. These flatfile formats carry the sequence and annotation together.",
+    showFasta: false
+  },
+  gff3Fasta: {
+    inputFormat: "gff3-fasta",
+    tabText: "GFF3 + FASTA",
+    annotationLabel: "GFF3 annotation rows",
+    annotationDropLabel: "Drop GFF3 annotation rows here",
+    annotationPlaceholder: "Paste GFF3 annotation rows here. Put the matching reference sequence in the FASTA pane below.",
+    showFasta: true
+  },
+  gtfFasta: {
+    inputFormat: "gtf-fasta",
+    tabText: "GTF + FASTA",
+    annotationLabel: "GTF annotation rows",
+    annotationDropLabel: "Drop GTF annotation rows here",
+    annotationPlaceholder: "Paste GTF annotation rows here. Put the matching reference sequence in the FASTA pane below.",
+    showFasta: true
+  },
+  bedFasta: {
+    inputFormat: "bed-fasta",
+    tabText: "BED + FASTA",
+    annotationLabel: "BED interval rows",
+    annotationDropLabel: "Drop BED interval rows here",
+    annotationPlaceholder:
+      "Paste BED interval rows here. BED coordinates are interpreted as 0-based half-open; put the matching reference sequence in the FASTA pane below.",
+    showFasta: true
+  }
+};
+
+const ANNOTATED_DNA_RECORD_SOURCE_MODES = {
+  flatfile: {
+    ...BIOLOGICAL_RECORD_SOURCE_MODES.flatfile,
+    annotationDropLabel: "Drop GenBank, DDBJ, or EMBL nucleotide record here",
+    annotationPlaceholder:
+      "Paste a GenBank, DDBJ, or EMBL nucleotide record here. These flatfile formats carry the sequence and annotation together."
+  },
+  gff3Fasta: BIOLOGICAL_RECORD_SOURCE_MODES.gff3Fasta,
+  gtfFasta: BIOLOGICAL_RECORD_SOURCE_MODES.gtfFasta,
+  bedFasta: BIOLOGICAL_RECORD_SOURCE_MODES.bedFasta
+};
+
+const DNA_SEQUENCE_VIEWER_SOURCE_MODES = {
+  sequence: {
+    inputFormat: "sequence",
+    tabText: "Plain sequence or FASTA",
+    annotationLabel: "DNA/RNA sequence",
+    annotationDropLabel: "Drop one plain-text DNA/RNA sequence or FASTA records here",
+    annotationPlaceholder: "Paste one plain-text DNA/RNA sequence or FASTA records here.",
+    showFasta: false
+  },
+  flatfile: ANNOTATED_DNA_RECORD_SOURCE_MODES.flatfile,
+  gff3Fasta: BIOLOGICAL_RECORD_SOURCE_MODES.gff3Fasta,
+  gtfFasta: BIOLOGICAL_RECORD_SOURCE_MODES.gtfFasta,
+  bedFasta: BIOLOGICAL_RECORD_SOURCE_MODES.bedFasta
+};
+
+const BIOLOGICAL_RECORD_MODE_EXAMPLES = {
+  sequence: {
+    annotation: `>plain_viewer_sequence
+ACGTACGTACGTACGTACGTACGTACGTACGT`,
+    fasta: ""
+  },
+  gff3Fasta: {
+    annotation: `##gff-version 3
+plasmidA\tSMS3\tgene\t30\t8\t.\t+\t.\tID=gene1;Name=wrapGene
+plasmidA\tSMS3\tCDS\t5\t18\t.\t-\t.\tID=cds1;Name=demoCds;product=demo protein`,
+    fasta: `>plasmidA circular plasmid
+ATGAAACCCGGGTTTAAACCCGGGTTTAAACCCGGGTTT`
+  },
+  gtfFasta: {
+    annotation: `chrDemo\tSMS3\tgene\t1\t30\t.\t+\t.\tgene_id "gene1"; gene_name "demo_gene";
+chrDemo\tSMS3\ttranscript\t1\t30\t.\t+\t.\tgene_id "gene1"; transcript_id "tx1"; gene_name "demo_gene";
+chrDemo\tSMS3\texon\t1\t9\t.\t+\t.\tgene_id "gene1"; transcript_id "tx1";
+chrDemo\tSMS3\texon\t19\t30\t.\t+\t.\tgene_id "gene1"; transcript_id "tx1";
+chrDemo\tSMS3\tCDS\t4\t9\t.\t+\t0\tgene_id "gene1"; transcript_id "tx1"; product "demo peptide";
+chrDemo\tSMS3\tCDS\t19\t27\t.\t+\t0\tgene_id "gene1"; transcript_id "tx1"; product "demo peptide";`,
+    fasta: `>chrDemo demo contig
+ATGAAACCCGGGTTTAAACCCGGGTTTAAA`
+  },
+  bedFasta: {
+    annotation: `# simple BED intervals
+chrDemo\t0\t9\tpromoter\t0\t+
+chrDemo\t12\t24\trepeat_region\t0\t-`,
+    fasta: `>chrDemo demo contig
+ATGAAACCCGGGTTTAAACCCGGGTTT`
+  }
+};
+
+function isBiologicalRecordFormatConverterTool(tool = state.selectedTool) {
+  return tool?.metadata?.id === BIOLOGICAL_RECORD_FORMAT_CONVERTER_TOOL_ID;
+}
+
+function isAnnotatedDnaRecordExtractorTool(tool = state.selectedTool) {
+  return tool?.metadata?.id === ANNOTATED_DNA_RECORD_EXTRACTOR_TOOL_ID;
+}
+
+function isStandaloneDnaSequenceViewerTool(tool = state.selectedTool) {
+  return tool?.metadata?.id === LINEAR_DNA_SEQUENCE_VIEWER_TOOL_ID ||
+    tool?.metadata?.id === CIRCULAR_DNA_SEQUENCE_VIEWER_TOOL_ID;
+}
+
+function isGenomeFigureTool(tool = state.selectedTool) {
+  return tool?.metadata?.id === GENOME_FIGURE_TOOL_ID ||
+    tool?.metadata?.id === CIRCULAR_GENOME_FIGURE_TOOL_ID ||
+    tool?.metadata?.id === LINEAR_GENOME_FIGURE_TOOL_ID;
+}
+
+function isSequenceEditorTool(tool = state.selectedTool) {
+  return tool?.metadata?.id === SEQUENCE_EDITOR_TOOL_ID;
+}
+
+function isBiologicalRecordTabbedInputTool(tool = state.selectedTool) {
+  return isBiologicalRecordFormatConverterTool(tool) ||
+    isAnnotatedDnaRecordExtractorTool(tool) ||
+    isStandaloneDnaSequenceViewerTool(tool) ||
+    isGenomeFigureTool(tool) ||
+    isSequenceEditorTool(tool);
+}
+
+function getBiologicalRecordSourceModes(tool = state.selectedTool) {
+  if (isStandaloneDnaSequenceViewerTool(tool) || isGenomeFigureTool(tool) || isSequenceEditorTool(tool)) {
+    return DNA_SEQUENCE_VIEWER_SOURCE_MODES;
+  }
+  return isAnnotatedDnaRecordExtractorTool(tool) ||
+    isGenomeFigureTool(tool)
+    ? ANNOTATED_DNA_RECORD_SOURCE_MODES
+    : BIOLOGICAL_RECORD_SOURCE_MODES;
+}
+
+function biologicalRecordSourceModeFromInputFormat(inputFormat) {
+  if (inputFormat === "sequence") {
+    return "sequence";
+  }
+  if (inputFormat === "gff3-fasta") {
+    return "gff3Fasta";
+  }
+  if (inputFormat === "gtf-fasta") {
+    return "gtfFasta";
+  }
+  if (inputFormat === "bed-fasta") {
+    return "bedFasta";
+  }
+  return "flatfile";
+}
+
+function renderBiologicalRecordTabbedInput(tool) {
+  const splitInput = tool.metadata.splitInput;
+  const exampleParts = splitInputExampleParts(tool);
+  const sourceModes = getBiologicalRecordSourceModes(tool);
+  elements.splitInputPanel.hidden = false;
+  elements.splitInputPanel.textContent = "";
+
+  const wrapper = document.createElement("section");
+  wrapper.className = "bio-record-input";
+  wrapper.id = "biologicalRecordInputPanel";
+  wrapper.dataset.flatfileExample = exampleParts[0] ?? "";
+
+  const sourceCard = document.createElement("section");
+  sourceCard.className = "bio-record-source-card";
+  const tabs = createTabbedInputWorkflowTabs({
+    document,
+    modes: sourceModes,
+    selectedMode: biologicalRecordSourceModeFromInputFormat(getToolOptionValue("inputFormat", "auto")),
+    ariaLabel: "Biological record input type",
+    className: "bio-record-source-tabs",
+    tabClassName: "bio-record-source-tab",
+    onSelect: (mode) => {
+      setBiologicalRecordSourceMode(mode, { maybeLoadExample: true });
+      clearToolOutput();
+      updateToolOptionSuggestions();
+    }
+  });
+
+  const pairedInputGrid = document.createElement("div");
+  pairedInputGrid.className = "bio-record-paired-input-grid";
+  pairedInputGrid.append(
+    createBiologicalRecordInputSection({
+      key: "annotation",
+      panel: splitInput.panels?.[0],
+      index: 0,
+      value: exampleParts[0] ?? ""
+    }),
+    createBiologicalRecordInputSection({
+      key: "fasta",
+      panel: splitInput.panels?.[1],
+      index: 1,
+      value: exampleParts[1] ?? ""
+    })
+  );
+
+  sourceCard.append(tabs, pairedInputGrid);
+  wrapper.append(sourceCard);
+  elements.splitInputPanel.append(wrapper);
+  setBiologicalRecordSourceMode(biologicalRecordSourceModeFromInputFormat(getToolOptionValue("inputFormat", "auto")), {
+    syncOption: false
+  });
+}
+
+function createBiologicalRecordInputSection({ key, panel, index, value }) {
+  const section = document.createElement("section");
+  section.className = "split-input-section bio-record-input-section";
+  section.dataset.bioRecordSection = key;
+  const heading = document.createElement("div");
+  heading.className = "split-input-heading";
+  const title = document.createElement("h4");
+  title.textContent = panel?.label ?? `Input ${index + 1}`;
+  const fileLabel = document.createElement("label");
+  fileLabel.className = "file-button";
+  const fileInput = document.createElement("input");
+  fileInput.type = "file";
+  fileInput.accept = panel?.accept ?? ".txt";
+  fileInput.setAttribute("aria-label", panel?.label ?? `Input ${index + 1}`);
+  const fileText = document.createElement("span");
+  fileText.textContent = "Choose file";
+  fileLabel.append(fileInput, fileText);
+  heading.append(title, fileLabel);
+
+  const dropZone = document.createElement("div");
+  dropZone.className = "drop-zone split-drop-zone";
+  dropZone.textContent = panel?.dropLabel ?? `Drop ${title.textContent} here`;
+  const textarea = document.createElement("textarea");
+  textarea.className = "split-input-textarea";
+  textarea.dataset.splitInputIndex = String(index);
+  textarea.spellcheck = false;
+  textarea.wrap = "off";
+  textarea.value = formatExampleInputForDisplay(value);
+  textarea.placeholder = panel?.placeholder ?? "";
+
+  const loadFile = async (file) => {
+    if (!file) {
+      return;
+    }
+    if (file.size > 25 * 1024 * 1024) {
+      addMessage(`${file.name}: file is larger than 25 MB.`, "warning");
+      return;
+    }
+    textarea.value = await readToolInputFileText(file, { onMessage: addMessage });
+    clearToolOutput();
+    updateInputActionButtons();
+    updateToolOptionSuggestions();
+    addMessage(`Loaded ${file.name} (${file.size.toLocaleString()} bytes).`);
+  };
+  fileInput.addEventListener("change", async () => {
+    await loadFile(fileInput.files?.[0]);
+    fileInput.value = "";
+  });
+  dropZone.addEventListener("dragover", (event) => {
+    event.preventDefault();
+    dropZone.classList.add("drag-over");
+  });
+  dropZone.addEventListener("dragleave", () => dropZone.classList.remove("drag-over"));
+  dropZone.addEventListener("drop", async (event) => {
+    event.preventDefault();
+    dropZone.classList.remove("drag-over");
+    await loadFile(event.dataTransfer.files?.[0]);
+  });
+  textarea.addEventListener("input", () => {
+    updateInputActionButtons();
+    updateToolOptionSuggestions();
+  });
+  section.append(heading, dropZone, textarea);
+  return section;
+}
+
+function setBiologicalRecordSourceMode(mode, { syncOption = true, maybeLoadExample = false } = {}) {
+  const panel = document.querySelector("#biologicalRecordInputPanel");
+  if (!panel) {
+    return;
+  }
+  const sourceModes = getBiologicalRecordSourceModes();
+  const sourceMode = sourceModes[mode] ? mode : "flatfile";
+  const config = sourceModes[sourceMode];
+  panel.dataset.sourceMode = sourceMode;
+
+  updateTabbedInputWorkflowTabs(panel, sourceMode, { tabSelector: ".bio-record-source-tab" });
+  const annotationSection = panel.querySelector('[data-bio-record-section="annotation"]');
+  const annotationTitle = annotationSection?.querySelector(".split-input-heading h4");
+  const annotationInput = annotationSection?.querySelector(".split-input-textarea");
+  const annotationDrop = annotationSection?.querySelector(".split-drop-zone");
+  if (annotationTitle) {
+    annotationTitle.textContent = config.annotationLabel;
+  }
+  if (annotationInput) {
+    annotationInput.placeholder = config.annotationPlaceholder;
+  }
+  const annotationFileInput = annotationSection?.querySelector('input[type="file"]');
+  if (annotationFileInput) {
+    annotationFileInput.setAttribute("aria-label", config.annotationLabel);
+  }
+  if (annotationDrop) {
+    annotationDrop.textContent = config.annotationDropLabel;
+  }
+  const fastaSection = panel.querySelector('[data-bio-record-section="fasta"]');
+  if (fastaSection) {
+    fastaSection.hidden = !config.showFasta;
+  }
+  if (maybeLoadExample) {
+    loadBiologicalRecordModeExampleIfSafe(panel, sourceMode);
+  }
+  if (syncOption) {
+    const currentInputFormat = getToolOptionValue("inputFormat", "auto");
+    if (sourceMode === "flatfile") {
+      if (
+        currentInputFormat === "sequence" ||
+        currentInputFormat === "gff3-fasta" ||
+        currentInputFormat === "gtf-fasta" ||
+        currentInputFormat === "bed-fasta"
+      ) {
+        setToolOptionValue("inputFormat", "auto");
+      }
+    } else {
+      setToolOptionValue("inputFormat", config.inputFormat);
+    }
+  }
+}
+
+function loadBiologicalRecordModeExampleIfSafe(panel, sourceMode) {
+  const annotationInput = panel.querySelector('[data-bio-record-section="annotation"] .split-input-textarea');
+  const fastaInput = panel.querySelector('[data-bio-record-section="fasta"] .split-input-textarea');
+  if (!annotationInput || !fastaInput) {
+    return;
+  }
+  const examples = {
+    flatfile: {
+      annotation: panel.dataset.flatfileExample ?? "",
+      fasta: ""
+    },
+    ...BIOLOGICAL_RECORD_MODE_EXAMPLES
+  };
+  const nextExample = examples[sourceMode];
+  if (!nextExample) {
+    return;
+  }
+  const knownAnnotationExamples = Object.values(examples).map((item) => String(item.annotation ?? "").trim());
+  const knownFastaExamples = Object.values(examples).map((item) => String(item.fasta ?? "").trim());
+  const annotationValue = annotationInput.value.trim();
+  const fastaValue = fastaInput.value.trim();
+  const canReplaceAnnotation = !annotationValue || knownAnnotationExamples.includes(annotationValue);
+  const canReplaceFasta = !fastaValue || knownFastaExamples.includes(fastaValue);
+  if (!canReplaceAnnotation || !canReplaceFasta) {
+    return;
+  }
+  annotationInput.value = nextExample.annotation;
+  fastaInput.value = nextExample.fasta;
+}
+
+function updateBiologicalRecordFormatConverterInputUi() {
+  if (!isBiologicalRecordTabbedInputTool()) {
+    return;
+  }
+  setBiologicalRecordSourceMode(biologicalRecordSourceModeFromInputFormat(getToolOptionValue("inputFormat", "auto")), {
+    syncOption: false,
+    maybeLoadExample: true
+  });
+}
+
+function getBiologicalRecordFormatConverterInputText() {
+  const panel = document.querySelector("#biologicalRecordInputPanel");
+  if (!panel) {
+    return "";
+  }
+  const sourceMode = panel.dataset.sourceMode ?? "flatfile";
+  const annotation = panel.querySelector('[data-bio-record-section="annotation"] .split-input-textarea')?.value ?? "";
+  const sourceModes = getBiologicalRecordSourceModes();
+  if (sourceMode === "flatfile" || sourceModes[sourceMode]?.showFasta === false) {
+    return annotation;
+  }
+  const fasta = panel.querySelector('[data-bio-record-section="fasta"] .split-input-textarea')?.value ?? "";
+  const separator = state.selectedTool?.metadata?.splitInput?.separator ?? "##FASTA";
+  return [annotation, fasta].join(`\n${separator}\n`);
+}
+
+function isPcrPrimerDesignTool(tool = state.selectedTool) {
+  return tool?.metadata?.id === PCR_PRIMER_DESIGN_TOOL_ID;
+}
+
+function isSamBamSummaryRegionViewerTool(tool = state.selectedTool) {
+  return tool?.metadata?.id === SAM_BAM_SUMMARY_REGION_VIEWER_TOOL_ID;
+}
+
+function isVcfExtractorTool(tool = state.selectedTool) {
+  return tool?.metadata?.id === VCF_EXTRACTOR_TOOL_ID;
+}
+
+function isVcfTabbedInputTool(tool = state.selectedTool) {
+  return tool?.metadata?.id === VCF_EXTRACTOR_TOOL_ID
+    || tool?.metadata?.id === VCF_FILTER_TOOL_ID;
+}
+
+function isAlignmentViewerTool(tool = state.selectedTool) {
+  return tool?.metadata?.id === ALIGNMENT_VIEWER_TOOL_ID;
+}
+
+function isFastaRegionExtractorTool(tool = state.selectedTool) {
+  return tool?.metadata?.id === FASTA_REGION_EXTRACTOR_TOOL_ID;
+}
+
+function isFastaSourceTabbedTool(tool = state.selectedTool) {
+  if (!tool || isFastaRegionExtractorTool(tool)) {
+    return false;
+  }
+  return flattenOptions(tool.metadata?.options ?? [])
+    .some((option) => option.id === "sourceMode" && option.placement === "input");
+}
+
+function isReadMappingCoverageTool(tool = state.selectedTool) {
+  return tool?.metadata?.id === READ_MAPPING_COVERAGE_TOOL_ID;
+}
+
+function isProteinStructureViewerTool(tool = state.selectedTool) {
+  return tool?.metadata?.id === PROTEIN_STRUCTURE_VIEWER_TOOL_ID;
+}
+
+function isProteinConservationStructureViewerTool(tool = state.selectedTool) {
+  return tool?.metadata?.id === PROTEIN_CONSERVATION_STRUCTURE_VIEWER_TOOL_ID;
+}
+
+function isSangerTraceViewerTool(tool = state.selectedTool) {
+  return tool?.metadata?.splitInput?.customRenderer === "sanger-trace-workspace";
+}
+
+function isTabbedInputWorkflowTool(tool = state.selectedTool) {
+  return [
+    BIOLOGICAL_RECORD_FORMAT_CONVERTER_TOOL_ID,
+    ANNOTATED_DNA_RECORD_EXTRACTOR_TOOL_ID,
+    LINEAR_DNA_SEQUENCE_VIEWER_TOOL_ID,
+    CIRCULAR_DNA_SEQUENCE_VIEWER_TOOL_ID,
+    GENOME_FIGURE_TOOL_ID,
+    CIRCULAR_GENOME_FIGURE_TOOL_ID,
+    LINEAR_GENOME_FIGURE_TOOL_ID,
+    SEQUENCE_EDITOR_TOOL_ID,
+    SAM_BAM_SUMMARY_REGION_VIEWER_TOOL_ID,
+    VCF_EXTRACTOR_TOOL_ID,
+    VCF_FILTER_TOOL_ID,
+    ALIGNMENT_VIEWER_TOOL_ID,
+    ...(isFastaSourceTabbedTool(tool) ? [tool.metadata.id] : []),
+    FASTA_REGION_EXTRACTOR_TOOL_ID
+  ].includes(tool?.metadata?.id);
+}
+
+const indexedInputPanels = createIndexedInputPanelsController({
+  elements,
+  isSamBamSummaryRegionViewerTool,
+  isVcfExtractorTool,
+  isVcfTabbedInputTool,
+  isFastaSourceTabbedTool,
+  isFastaRegionExtractorTool,
+  getSelectedTool: () => state.selectedTool,
+  getToolOptionValue,
+  setToolOptionValue,
+  dispatchToolOptionChange,
+  setFileOptionFiles,
+  readToolInputFileText,
+  loadInputFile,
+  clearToolOutput,
+  updateToolOptionSuggestions,
+  flattenOptions,
+  pluralize
+});
+
+function updateSamBamInputModeUi() {
+  indexedInputPanels.updateSamBamInputModeUi();
+}
+
+function updateVcfInputModeUi() {
+  indexedInputPanels.updateVcfInputModeUi();
+}
+
+function updateFastaSourceInputUi() {
+  indexedInputPanels.updateFastaSourceInputUi();
+}
+
+function updateFastaRegionExtractorSourceUi() {
+  indexedInputPanels.updateFastaRegionExtractorSourceUi();
+}
+
+function setFastaRegionSourceMode(mode) {
+  indexedInputPanels.setFastaRegionSourceMode(mode);
+}
+
+function setToolOptionValue(optionId, value) {
+  const root = elements.toolOptions;
+  const select = root.querySelector(`select[name="${optionId}"]`);
+  if (select) {
+    select.value = String(value);
+    return;
+  }
+  const checkedRadio = root.querySelector(`input[name="${optionId}"][value="${value}"]`);
+  if (checkedRadio) {
+    checkedRadio.checked = true;
+    return;
+  }
+  const control = root.querySelector(`#${optionId}, [name="${optionId}"]`);
+  if (!control) {
+    return;
+  }
+  if (control.type === "checkbox") {
+    control.checked = Boolean(value);
+    return;
+  }
+  control.value = String(value ?? "");
+}
+
+function dispatchToolOptionChange(optionId) {
+  const root = elements.toolOptions;
+  const control = root.querySelector(`select[name="${optionId}"]`) ??
+    root.querySelector(`input[name="${optionId}"]:checked`) ??
+    root.querySelector(`#${optionId}, [name="${optionId}"]`);
+  if (!control) {
+    return false;
+  }
+  control.dispatchEvent(new Event("change", { bubbles: true }));
+  return true;
+}
+
+function getToolOptionValue(optionId, fallback = "") {
+  const root = elements.toolOptions;
+  return root.querySelector(`select[name="${optionId}"]`)?.value ??
+    root.querySelector(`input[name="${optionId}"]:checked`)?.value ??
+    root.querySelector(`#${optionId}, [name="${optionId}"]`)?.value ??
+    fallback;
+}
+
+function setPcrPrimerDesignConstraintDetailsOpen(open) {
+  for (const id of PCR_PRIMER_CONSTRAINT_DETAIL_IDS) {
+    const details = elements.toolOptions.querySelector(`details[data-option-id="${id}"]`);
+    if (details) {
+      details.open = open;
+    }
+  }
+}
+
+function openPcrPrimerDesignConstraintDetails() {
+  setPcrPrimerDesignConstraintDetailsOpen(true);
+}
+
+function closePcrPrimerDesignConstraintDetails() {
+  setPcrPrimerDesignConstraintDetailsOpen(false);
+}
+
+function applyPcrPrimerDesignPreset(presetId) {
+  if (presetId === "custom") {
+    openPcrPrimerDesignConstraintDetails();
+    return;
+  }
+  const preset = PCR_PRIMER_DESIGN_PRESETS[presetId];
+  if (!preset) {
+    return;
+  }
+  for (const [optionId, value] of Object.entries(preset.values)) {
+    setToolOptionValue(optionId, value);
+  }
+  closePcrPrimerDesignConstraintDetails();
+}
+
+function getPcrPrimerDesignSummaryValues() {
+  return {
+    designPreset: getToolOptionValue("designPreset", "custom"),
+    minProductLength: getToolOptionValue("minProductLength", "200"),
+    maxProductLength: getToolOptionValue("maxProductLength", "800"),
+    primerMinLength: getToolOptionValue("primerMinLength", "18"),
+    primerMaxLength: getToolOptionValue("primerMaxLength", "24"),
+    primerOptTm: getToolOptionValue("primerOptTm", "60"),
+    primerMinGc: getToolOptionValue("primerMinGc", "40"),
+    primerMaxGc: getToolOptionValue("primerMaxGc", "60"),
+    targetRegion: getToolOptionValue("targetRegion", ""),
+    excludedRegions: getToolOptionValue("excludedRegions", "")
+  };
+}
+
+function updatePcrPrimerDesignSummary() {
+  const summary = elements.toolOptions.querySelector('[data-option-id="designSummary"] [data-summary-text]');
+  if (summary) {
+    summary.textContent = formatPcrPrimerDesignSummary(getPcrPrimerDesignSummaryValues());
+  }
+}
+
+function updatePcrPrimerDesignUi({ applyPreset = false } = {}) {
+  if (!isPcrPrimerDesignTool()) {
+    return;
+  }
+  if (applyPreset) {
+    applyPcrPrimerDesignPreset(getToolOptionValue("designPreset", "custom"));
+  }
+  updatePcrPrimerDesignSummary();
+}
+
 function getSelectedToolInputText() {
   const splitInput = state.selectedTool?.metadata?.splitInput;
   if (!toolRequiresInput(state.selectedTool)) {
     return "";
   }
   if (!splitInput) {
+    const workspaceInputText = workspaceInputSources.getToolInputText(state.selectedTool);
+    if (workspaceInputText !== null) {
+      return workspaceInputText;
+    }
     return elements.sequenceInput.value;
+  }
+  if (isBiologicalRecordTabbedInputTool()) {
+    return getBiologicalRecordFormatConverterInputText();
+  }
+  if (isSangerTraceViewerTool()) {
+    return sangerTraceWorkspace.getInputText();
+  }
+  if (isAlignmentViewerTool()) {
+    return getAlignmentViewerInputText();
+  }
+  if (isReadMappingCoverageTool()) {
+    return getReadMappingCoverageInputText();
   }
   const separator = splitInput.separator ?? "---";
   return [...elements.splitInputPanel.querySelectorAll(".split-input-textarea")]
@@ -1396,522 +2735,711 @@ function getSelectedToolInputText() {
     .join(`\n${separator}\n`);
 }
 
-function renderToolOptions(options) {
-  const visibleOptions = options.filter(shouldRenderToolOption);
-  if (visibleOptions.length === 0) {
-    elements.toolOptions.textContent = "";
-    return;
-  }
-
-  const fragment = document.createDocumentFragment();
-  const defaultValues = getDefaultOptionValues(options);
-
-  for (const option of visibleOptions) {
-    appendToolOptionControl(fragment, option, defaultValues);
-  }
-
-  elements.toolOptions.replaceChildren(fragment);
-  wireDependentToolOptions(options);
+function getReadMappingCoverageInputText() {
+  const separator = state.selectedTool?.metadata?.splitInput?.separator ?? "---";
+  const reference = elements.splitInputPanel.querySelector('[data-read-mapping-input="reference"]')?.value ?? "";
+  const readLayout = elements.splitInputPanel.querySelector('input[name="readLayout"]:checked')?.value === "paired"
+    ? "paired"
+    : "single";
+  const reads = readLayout === "paired"
+    ? [
+        elements.splitInputPanel.querySelector('[data-read-mapping-input="reads-r1"]')?.value ?? "",
+        elements.splitInputPanel.querySelector('[data-read-mapping-input="reads-r2"]')?.value ?? ""
+      ].filter((value) => value.trim().length > 0).join("\n")
+    : elements.splitInputPanel.querySelector('[data-read-mapping-input="reads-single"]')?.value ?? "";
+  return [reference, reads].join(`\n${separator}\n`);
 }
 
-function shouldRenderToolOption(option) {
-  if (option.type === "group") {
-    return (option.options ?? []).some(shouldRenderToolOption);
+function renderToolOptions(...args) {
+  return toolOptionsUi.renderToolOptions(...args);
+}
+
+function shouldAppendGeneratedLimitDisclosure(...args) {
+  return toolOptionsUi.shouldAppendGeneratedLimitDisclosure(...args);
+}
+
+function isTopLevelToolLimitGroup(...args) {
+  return toolOptionsUi.isTopLevelToolLimitGroup(...args);
+}
+
+function optionTreeIncludesId(...args) {
+  return toolOptionsUi.optionTreeIncludesId(...args);
+}
+
+function createGeneratedLimitDisclosure(...args) {
+  return toolOptionsUi.createGeneratedLimitDisclosure(...args);
+}
+
+function getSuggestionSourcesForOptions(...args) {
+  return toolOptionsUi.getSuggestionSourcesForOptions(...args);
+}
+
+function shouldRenderToolOption(...args) {
+  return toolOptionsUi.shouldRenderToolOption(...args);
+}
+
+function getSuggestionListId(...args) {
+  return toolOptionsUi.getSuggestionListId(...args);
+}
+
+function getSplitInputTextAt(index) {
+  const splitTextareas = [...elements.splitInputPanel.querySelectorAll(".split-input-textarea")]
+    .filter((textarea) => !textarea.closest("[hidden]"));
+  return splitTextareas[index]?.value ?? "";
+}
+
+function getProteinStructureSuggestionInput() {
+  return getSplitInputTextAt(0) || getSelectedToolInputText();
+}
+
+function getProteinStructureSuggestionSummary({ useSelectedModel = false } = {}) {
+  const text = getProteinStructureSuggestionInput();
+  if (!text.trim() || text.length > PROTEIN_STRUCTURE_SUGGESTION_CHAR_LIMIT) {
+    return null;
   }
+  const format = elements.toolOptions.querySelector("#format")?.value ?? "auto";
+  const altLocationPolicy = elements.toolOptions.querySelector("#altLocationPolicy")?.value ?? "preferred";
+  const requestedModel = useSelectedModel
+    ? (elements.toolOptions.querySelector("#modelSelection")?.value.trim() || "all")
+    : "all";
+  try {
+    return summarizeProteinStructure(text, {
+      format,
+      modelSelection: requestedModel,
+      chainSelection: "all",
+      altLocationPolicy
+    });
+  } catch {
+    if (!useSelectedModel) {
+      return null;
+    }
+    try {
+      return summarizeProteinStructure(text, {
+        format,
+        modelSelection: "all",
+        chainSelection: "all",
+        altLocationPolicy
+      });
+    } catch {
+      return null;
+    }
+  }
+}
+
+function getProteinStructureModelSuggestions() {
+  const summary = getProteinStructureSuggestionSummary({ useSelectedModel: false });
+  if (!summary) {
+    return [];
+  }
+  const models = (summary.availableModels ?? []).map((model) => String(model));
+  return [...new Set(["first", "all", ...models])];
+}
+
+function getProteinStructureChainSuggestions(source) {
+  const summary = getProteinStructureSuggestionSummary({ useSelectedModel: true });
+  if (!summary) {
+    return [];
+  }
+  const first = source === "protein-structure-chains-auto" ? "auto" : "all";
+  return [...new Set([first, ...(summary.availableChains ?? [])])];
+}
+
+function removeProteinStructureInputSummaryPanel() {
+  document.querySelector("#proteinStructureInputSummary")?.remove();
+  document.querySelector("#proteinStructureChainControl")?.remove();
+  elements.toolOptions
+    ?.querySelector('[data-option-id="chainSelection"]')
+    ?.classList.remove("protein-structure-hidden-option");
+}
+
+function removeProteinStructureInputSummaryOnly() {
+  document.querySelector("#proteinStructureInputSummary")?.remove();
+}
+
+function replaceProteinStructureSelectOptions(select, choices, preferredValue) {
+  if (!select) {
+    return "";
+  }
+  const previous = preferredValue ?? select.value;
+  select.textContent = "";
+  for (const choice of choices) {
+    const option = document.createElement("option");
+    option.value = choice.value;
+    option.textContent = choice.label;
+    select.append(option);
+  }
+  const fallback = choices[0]?.value ?? "";
+  select.value = choices.some((choice) => choice.value === previous) ? previous : fallback;
+  return select.value;
+}
+
+function updateProteinStructureModelSelect(summary) {
+  const select = elements.toolOptions.querySelector("#modelSelection");
+  if (!select) {
+    return;
+  }
+  const choices = [
+    { value: "first", label: "First model" },
+    { value: "all", label: "All models" },
+    ...((summary?.availableModels ?? []).map((model) => ({
+      value: String(model),
+      label: `Model ${model}`
+    })))
+  ];
+  replaceProteinStructureSelectOptions(select, choices, select.value || "first");
+}
+
+function updateProteinStructureAssemblySelect(summary) {
+  const select = elements.toolOptions.querySelector("#biologicalAssembly");
+  if (!select) {
+    return;
+  }
+  const choices = [
+    { value: "asymmetric", label: "Asymmetric unit" },
+    ...((summary?.availableBiologicalAssemblies ?? []).map((assembly) => ({
+      value: String(assembly),
+      label: `Biological assembly ${assembly}`
+    })))
+  ];
+  replaceProteinStructureSelectOptions(select, choices, select.value || "asymmetric");
+}
+
+function parseProteinStructureChainSelection(value) {
+  const text = String(value ?? "all").trim();
+  if (!text || /^all(?: chains)?$/i.test(text)) {
+    return { all: true, selected: new Set() };
+  }
+  return {
+    all: false,
+    selected: new Set(text.split(/[,\s]+/).map((item) => item.trim()).filter(Boolean))
+  };
+}
+
+function syncProteinStructureChainInput(panel) {
+  const hiddenInput = elements.toolOptions.querySelector("#chainSelection");
+  if (!hiddenInput) {
+    return;
+  }
+  const all = panel.querySelector("#proteinStructureChainAll");
+  const chainInputs = [...panel.querySelectorAll(".protein-structure-chain-option input")];
+  if (all?.checked || chainInputs.length === 0) {
+    hiddenInput.value = "all";
+    chainInputs.forEach((input) => {
+      input.checked = true;
+    });
+    return;
+  }
+  const selected = chainInputs.filter((input) => input.checked).map((input) => input.value);
+  if (selected.length === 0) {
+    hiddenInput.value = "all";
+    if (all) {
+      all.checked = true;
+    }
+    chainInputs.forEach((input) => {
+      input.checked = true;
+    });
+  } else if (selected.length === chainInputs.length) {
+    hiddenInput.value = "all";
+    if (all) {
+      all.checked = true;
+    }
+  } else {
+    hiddenInput.value = selected.join(",");
+  }
+}
+
+function handleProteinStructureChainControlChange(target) {
+  const panel = target?.closest?.("#proteinStructureChainControl");
+  if (!panel) {
+    return false;
+  }
+  const allInput = panel.querySelector("#proteinStructureChainAll");
+  const chainInputs = [...panel.querySelectorAll(".protein-structure-chain-option input")];
+  if (target === allInput && allInput.checked) {
+    chainInputs.forEach((input) => {
+      input.checked = true;
+    });
+  } else if (target?.matches?.(".protein-structure-chain-option input")) {
+    if (allInput && !target.checked) {
+      allInput.checked = false;
+    }
+    if (allInput && chainInputs.length > 0 && chainInputs.every((input) => input.checked)) {
+      allInput.checked = true;
+    }
+  }
+  syncProteinStructureChainInput(panel);
+  clearToolOutput();
   return true;
 }
 
-function appendToolOptionControl(parent, option, defaultValues) {
-  if (option.type === "group") {
-    const group = document.createElement("section");
-    group.className = "option-group";
-    const heading = document.createElement("h4");
-    heading.append(createOptionLabelContent(option));
-    group.append(heading);
-    for (const child of option.options ?? []) {
-      if (shouldRenderToolOption(child)) {
-        appendToolOptionControl(group, child, defaultValues);
-      }
-    }
-    parent.append(group);
-    return;
+function queueProteinStructureChainControlUpdate(target) {
+  const panel = target?.closest?.("#proteinStructureChainControl");
+  if (!panel) {
+    return false;
   }
-
-  if (option.type === "select" || (option.type === "radio" && (option.choices ?? []).length > 3)) {
-    const label = document.createElement("label");
-    label.className = "select-row";
-    label.dataset.optionId = option.id;
-    label.append(createOptionLabelContent(option));
-    const select = document.createElement("select");
-    select.id = option.id;
-    select.name = option.id;
-    populateDependentSelect(select, option, defaultValues, option.defaultValue);
-    select.value = option.defaultValue;
-    label.append(select);
-    parent.append(label);
-    return;
-  }
-
-  if (option.type === "radio") {
-    const fieldset = document.createElement("fieldset");
-    fieldset.dataset.optionId = option.id;
-    const legend = document.createElement("legend");
-    legend.append(createOptionLabelContent(option));
-    fieldset.append(legend);
-
-    for (const choice of option.choices) {
-      const label = document.createElement("label");
-      const input = document.createElement("input");
-      input.type = "radio";
-      input.name = option.id;
-      input.value = choice.value;
-      input.checked = choice.value === option.defaultValue;
-      label.append(input, ` ${choice.label}`);
-      fieldset.append(label);
-    }
-
-    parent.append(fieldset);
-    return;
-  }
-
-  if (option.type === "checkbox") {
-    const label = document.createElement("label");
-    label.className = "checkbox-row";
-    label.dataset.optionId = option.id;
-    const input = document.createElement("input");
-    input.id = option.id;
-    input.type = "checkbox";
-    input.checked = option.defaultValue === true;
-    label.append(input, createOptionLabelContent(option));
-    parent.append(label);
-    return;
-  }
-
-  if (option.type === "number") {
-    const label = document.createElement("label");
-    label.className = "number-row";
-    label.dataset.optionId = option.id;
-    label.append(createOptionLabelContent(option));
-    const input = document.createElement("input");
-    input.id = option.id;
-    input.type = "number";
-    input.min = option.min;
-    input.max = option.max;
-    input.value = option.defaultValue;
-    label.append(input);
-    parent.append(label);
-    return;
-  }
-
-  if (option.type === "text") {
-    const label = document.createElement("label");
-    label.className = "text-row";
-    label.dataset.optionId = option.id;
-    label.append(createOptionLabelContent(option));
-    const input = document.createElement("input");
-    input.id = option.id;
-    input.type = "text";
-    input.value = option.defaultValue ?? "";
-    label.append(input);
-    parent.append(label);
-    return;
-  }
-
-  if (option.type === "note") {
-    const note = document.createElement("p");
-    note.className = "option-note";
-    note.textContent = option.text;
-    parent.append(note);
-  }
+  handleProteinStructureChainControlChange(target);
+  updateToolOptionSuggestions();
+  updateProteinStructureViewerUi();
+  return true;
 }
 
-function createOptionLabelContent(option) {
-  const label = document.createElement("span");
-  label.className = "option-label";
-  label.append(String(option.label ?? ""));
-  const helpText = String(option.help ?? "").trim();
-  if (!helpText) {
-    return label;
+function renderProteinStructureChainControl(summary) {
+  const chainRow = elements.toolOptions.querySelector('[data-option-id="chainSelection"]');
+  const hiddenInput = elements.toolOptions.querySelector("#chainSelection");
+  if (!chainRow || !hiddenInput) {
+    return;
   }
-
+  chainRow.classList.add("protein-structure-hidden-option");
+  let panel = document.querySelector("#proteinStructureChainControl");
+  if (!panel) {
+    panel = document.createElement("div");
+    panel.id = "proteinStructureChainControl";
+    panel.className = "protein-structure-chain-control";
+    chainRow.after(panel);
+  }
+  panel.textContent = "";
+  const header = document.createElement("div");
+  header.className = "protein-structure-chain-heading";
+  const title = document.createElement("strong");
+  title.textContent = "Chains";
   const help = document.createElement("span");
-  help.className = "option-help";
-  help.tabIndex = 0;
-  help.setAttribute("role", "button");
-  help.setAttribute("aria-label", "Show option help");
-  help.textContent = "?";
+  help.textContent = summary
+    ? "Select all chains or choose individual chains from the selected model."
+    : "Chain choices appear after SMS3 parses the structure.";
+  header.append(title, help);
+  panel.append(header);
 
-  const popover = document.createElement("span");
-  popover.className = "option-help-popover";
-  popover.setAttribute("aria-hidden", "true");
-  popover.textContent = helpText;
-  const positionPopover = () => positionOptionHelpPopover(help, popover);
-  help.addEventListener("mouseenter", positionPopover);
-  help.addEventListener("focus", positionPopover);
-  help.addEventListener("click", positionPopover);
-  label.append(" ", help, popover);
-  return label;
-}
+  const chains = summary?.availableChains ?? [];
+  const selection = parseProteinStructureChainSelection(hiddenInput.value);
+  const allLabel = document.createElement("label");
+  allLabel.className = "protein-structure-chain-all";
+  const allInput = document.createElement("input");
+  allInput.type = "checkbox";
+  allInput.id = "proteinStructureChainAll";
+  allInput.checked = selection.all || chains.length === 0;
+  allLabel.append(allInput, " All chains");
+  panel.append(allLabel);
 
-function positionOptionHelpPopover(help, popover) {
-  const margin = 12;
-  const maxWidth = Math.min(384, Math.max(160, window.innerWidth - margin * 2));
-  popover.style.width = `${maxWidth}px`;
-  popover.style.maxWidth = `${maxWidth}px`;
-
-  const helpRect = help.getBoundingClientRect();
-  const popoverRect = popover.getBoundingClientRect();
-  const width = Math.min(popoverRect.width || maxWidth, maxWidth);
-  const height = popoverRect.height || 80;
-  const preferredLeft = helpRect.left;
-  const preferredTop = helpRect.bottom + 8;
-  const left = Math.min(
-    Math.max(margin, preferredLeft),
-    Math.max(margin, window.innerWidth - width - margin)
-  );
-  let top = preferredTop;
-  if (top + height > window.innerHeight - margin) {
-    top = helpRect.top - height - 8;
+  const list = document.createElement("div");
+  list.className = "protein-structure-chain-list";
+  for (const chain of chains) {
+    const label = document.createElement("label");
+    label.className = "protein-structure-chain-option";
+    const input = document.createElement("input");
+    input.type = "checkbox";
+    input.value = chain;
+    input.checked = selection.all || selection.selected.has(chain);
+    label.append(input, ` Chain ${chain}`);
+    input.addEventListener("change", () => {
+      if (allInput.checked && !input.checked) {
+        allInput.checked = false;
+      }
+      syncProteinStructureChainInput(panel);
+      clearToolOutput();
+    });
+    list.append(label);
   }
-  top = Math.min(
-    Math.max(margin, top),
-    Math.max(margin, window.innerHeight - height - margin)
-  );
-
-  popover.style.setProperty("--option-help-left", `${left}px`);
-  popover.style.setProperty("--option-help-top", `${top}px`);
-}
-
-function flattenOptions(options = []) {
-  return options.flatMap((option) => option.type === "group" ? flattenOptions(option.options ?? []) : [option]);
-}
-
-function getDefaultOptionValues(options) {
-  return Object.fromEntries(
-    flattenOptions(options)
-      .filter((option) => option.id)
-      .map((option) => [option.id, option.defaultValue])
-  );
-}
-
-function getOptionControlValue(root, option, fallback = option.defaultValue) {
-  if (option.type === "checkbox") {
-    return root.querySelector(`#${option.id}, [name="${option.id}"]`)?.checked ?? fallback;
+  if (chains.length === 0) {
+    const empty = document.createElement("p");
+    empty.className = "protein-structure-chain-empty";
+    empty.textContent = "No chains detected yet.";
+    list.append(empty);
   }
-  return (
-    root.querySelector(`select[name="${option.id}"]`)?.value ??
-    root.querySelector(`input[name="${option.id}"]:checked`)?.value ??
-    root.querySelector(`[name="${option.id}"]`)?.value ??
-    fallback
-  );
+  allInput.addEventListener("change", () => {
+    if (allInput.checked) {
+      list.querySelectorAll("input").forEach((input) => {
+        input.checked = true;
+      });
+    }
+    syncProteinStructureChainInput(panel);
+    clearToolOutput();
+  });
+  panel.append(list);
+  syncProteinStructureChainInput(panel);
 }
 
-function getCurrentOptionValues(root, options) {
-  return Object.fromEntries(
-    flattenOptions(options)
-      .filter((option) => option.id)
-      .map((option) => [option.id, getOptionControlValue(root, option)])
-  );
-}
-
-function getFilteredChoices(option, optionValues) {
-  const choices = option.choices ?? [];
-  if (!option.dependsOn) {
-    return choices;
+function updateProteinStructureViewerUi() {
+  const isStructureViewer = isProteinStructureViewerTool();
+  const isConservationViewer = isProteinConservationStructureViewerTool();
+  if (!isStructureViewer && !isConservationViewer) {
+    removeProteinStructureInputSummaryPanel();
+    return;
   }
-  const parentValue = optionValues[option.dependsOn];
-  if (!parentValue || parentValue === "all") {
-    return choices;
+  const text = getProteinStructureSuggestionInput();
+  removeProteinStructureInputSummaryOnly();
+  if (!text.trim()) {
+    updateProteinStructureModelSelect(null);
+    updateProteinStructureAssemblySelect(null);
+    if (isStructureViewer) {
+      renderProteinStructureChainControl(null);
+    } else {
+      document.querySelector("#proteinStructureChainControl")?.remove();
+    }
+    return;
   }
-  return choices.filter((choice) => choice.always || choice.value === option.defaultValue || choice.dependsOnValue === parentValue);
+  if (text.length > PROTEIN_STRUCTURE_SUGGESTION_CHAR_LIMIT) {
+    updateProteinStructureModelSelect(null);
+    updateProteinStructureAssemblySelect(null);
+    if (isStructureViewer) {
+      renderProteinStructureChainControl(null);
+    } else {
+      document.querySelector("#proteinStructureChainControl")?.remove();
+    }
+    return;
+  }
+  let fullSummary = null;
+  try {
+    fullSummary = getProteinStructureSuggestionSummary({ useSelectedModel: false });
+  } catch {
+    fullSummary = null;
+  }
+  updateProteinStructureModelSelect(fullSummary);
+  updateProteinStructureAssemblySelect(fullSummary);
+  const chainSummary = getProteinStructureSuggestionSummary({ useSelectedModel: true }) ?? fullSummary;
+  if (isStructureViewer) {
+    renderProteinStructureChainControl(chainSummary);
+  } else {
+    document.querySelector("#proteinStructureChainControl")?.remove();
+  }
 }
 
-function populateDependentSelect(select, option, optionValues, preferredValue) {
-  const choices = getFilteredChoices(option, optionValues);
-  select.textContent = "";
-  for (const choice of choices) {
-    const choiceOption = document.createElement("option");
-    choiceOption.value = choice.value;
-    choiceOption.textContent = choice.label;
-    select.append(choiceOption);
+function getProteinAlignmentRowSuggestions() {
+  const alignmentText = getSplitInputTextAt(1);
+  const text = alignmentText || getSelectedToolInputText().split(/\n---\n/).slice(1).join("\n---\n");
+  const titles = [];
+  for (const line of text.replace(/\r\n?/g, "\n").split("\n")) {
+    if (line.startsWith(">")) {
+      titles.push(line.slice(1).trim());
+    }
   }
-  select.value = choices.some((choice) => choice.value === preferredValue) ? preferredValue : option.defaultValue;
+  return [...new Set(["auto", ...titles.filter(Boolean)])];
 }
 
-function normalizeDependentOptionValues(options, optionValues) {
-  const normalized = { ...optionValues };
+function getVcfChromosomeSuggestions() {
+  if (isVcfTabbedInputTool()) {
+    const customSuggestions = elements.inputPanel
+      .querySelector("#vcfInputModePanel")
+      ?.dataset.contigSuggestions;
+    if (customSuggestions) {
+      return customSuggestions.split("\n").filter(Boolean);
+    }
+  }
+  return summarizeVcfFromText(getSelectedToolInputText())
+    .contigs
+    .map((contig) => contig.id);
+}
+
+function getVcfSampleSuggestions() {
+  if (!isVcfTabbedInputTool()) {
+    return [];
+  }
+  const customSuggestions = elements.inputPanel
+    .querySelector("#vcfInputModePanel")
+    ?.dataset.sampleSuggestions;
+  if (customSuggestions) {
+    return customSuggestions.split("\n").filter(Boolean);
+  }
+  return summarizeVcfFromText(getSelectedToolInputText()).samples;
+}
+
+function getVcfGeneSuggestions() {
+  if (!isVcfTabbedInputTool()) {
+    return [];
+  }
+  const customSuggestions = elements.inputPanel
+    .querySelector("#vcfInputModePanel")
+    ?.dataset.geneSuggestions;
+  if (customSuggestions) {
+    return customSuggestions.split("\n").filter(Boolean);
+  }
+  return summarizeVcfFromText(getSelectedToolInputText()).genes ?? [];
+}
+
+function getSamBamReferenceSuggestions() {
+  if (!isSamBamSummaryRegionViewerTool() && !isAlignmentViewerTool()) {
+    return [];
+  }
+  const customSuggestions = elements.inputPanel
+    .querySelector("#samBamInputModePanel, #alignmentViewerInputPanel")
+    ?.dataset.referenceSuggestions;
+  if (customSuggestions) {
+    return customSuggestions.split("\n").filter(Boolean);
+  }
+  return summarizeSamReferencesFromText(getSelectedToolInputText())
+    .references
+    .map((reference) => reference.name);
+}
+
+function getTableInputTextsForSuggestionSource(source) {
+  const splitTextareas = [...elements.splitInputPanel.querySelectorAll(".split-input-textarea")]
+    .filter((textarea) => !textarea.closest("[hidden]"));
+  if (splitTextareas.length > 0) {
+    if (source === "table-left-columns") {
+      return [splitTextareas[0]?.value ?? ""];
+    }
+    if (source === "table-right-columns") {
+      return [splitTextareas[1]?.value ?? ""];
+    }
+    return splitTextareas.map((textarea) => textarea.value);
+  }
+  return [getSelectedToolInputText()];
+}
+
+function getTableColumnSuggestions(source = "table-columns") {
+  const inputTexts = getTableInputTextsForSuggestionSource(source);
+  const delimiterChoice = elements.toolOptions.querySelector("#delimiter")?.value ?? "auto";
+  const hasHeader = elements.toolOptions.querySelector("#hasHeader")?.checked !== false;
+  return getTableColumnSuggestionsFromTexts(inputTexts, { source, delimiterChoice, hasHeader });
+}
+
+function autofillSuggestedOptionValues(suggestionsBySource, { force = false } = {}) {
+  const options = flattenOptions(state.selectedTool?.metadata?.options ?? []);
   for (const option of options) {
-    if (!option.dependsOn) {
+    const source = option.suggestionsFrom;
+    if (!source || !source.startsWith("table-")) {
       continue;
     }
-    const choices = getFilteredChoices(option, normalized);
-    if (!choices.some((choice) => choice.value === normalized[option.id])) {
-      normalized[option.id] = option.defaultValue;
+    const suggestions = suggestionsBySource.get(source) ?? [];
+    if (suggestions.length === 0 || option.type !== "text") {
+      continue;
+    }
+    const input = elements.toolOptions.querySelector(`#${option.id}`);
+    if (!input) {
+      continue;
+    }
+    const current = String(input.value ?? "").trim();
+    const defaultValue = String(option.defaultValue ?? "").trim();
+    const canAutofill =
+      force ||
+      current === "" ||
+      input.dataset.autofilledColumn === "true" ||
+      (defaultValue !== "" && current === defaultValue && !optionCurrentValueMatchesSuggestion(current, suggestions));
+    if (!canAutofill) {
+      continue;
+    }
+    const suggested = chooseSuggestedColumnForOption(option, suggestions);
+    if (suggested && current !== suggested) {
+      input.value = suggested;
+      input.dataset.autofilledColumn = "true";
     }
   }
-  return normalized;
 }
 
-function wireDependentToolOptions(options) {
-  const flatOptions = flattenOptions(options);
-  const dependentOptions = flatOptions.filter((option) => option.dependsOn);
-  const visibilityOptions = flatOptions.filter((option) => option.visibleWhen);
-  if (dependentOptions.length === 0 && visibilityOptions.length === 0) {
-    return;
+function updateToolOptionSuggestions({ autofillColumns = false, forceAutofillColumns = false } = {}) {
+  const suggestionsBySource = new Map();
+  for (const source of ["table-columns", "table-numeric-columns", "table-left-columns", "table-right-columns"]) {
+    const datalist = elements.toolOptions.querySelector(`#${getSuggestionListId(source)}`);
+    const columns = getTableColumnSuggestions(source);
+    suggestionsBySource.set(source, columns);
+    if (datalist) {
+      datalist.replaceChildren(...columns.map((column) => {
+        const option = document.createElement("option");
+        option.value = column;
+        return option;
+      }));
+    }
   }
+  if (autofillColumns) {
+    autofillSuggestedOptionValues(suggestionsBySource, { force: forceAutofillColumns });
+  }
+  const chromosomeDatalist = elements.toolOptions.querySelector("#vcfChromosomeSuggestions");
+  if (chromosomeDatalist) {
+    const chromosomes = getVcfChromosomeSuggestions();
+    chromosomeDatalist.replaceChildren(
+      ...chromosomes.map((chromosome) => {
+        const option = document.createElement("option");
+        option.value = chromosome;
+        return option;
+      })
+    );
+  }
+  const vcfSampleDatalist = elements.toolOptions.querySelector("#vcfSampleSuggestions");
+  if (vcfSampleDatalist) {
+    const samples = getVcfSampleSuggestions();
+    vcfSampleDatalist.replaceChildren(
+      ...samples.map((sample) => {
+        const option = document.createElement("option");
+        option.value = sample;
+        return option;
+      })
+    );
+  }
+  const vcfGeneDatalist = elements.toolOptions.querySelector("#vcfGeneSuggestions");
+  if (vcfGeneDatalist) {
+    const genes = getVcfGeneSuggestions();
+    vcfGeneDatalist.replaceChildren(
+      ...genes.map((gene) => {
+        const option = document.createElement("option");
+        option.value = gene;
+        return option;
+      })
+    );
+  }
+  const samBamReferenceDatalist = elements.toolOptions.querySelector("#samBamReferenceSuggestions");
+  if (samBamReferenceDatalist) {
+    const references = getSamBamReferenceSuggestions();
+    samBamReferenceDatalist.replaceChildren(
+      ...references.map((reference) => {
+        const option = document.createElement("option");
+        option.value = reference;
+        return option;
+      })
+    );
+  }
+  for (const source of [
+    "protein-structure-models",
+    "protein-structure-chains",
+    "protein-structure-chains-auto",
+    "protein-alignment-rows"
+  ]) {
+    const datalist = elements.toolOptions.querySelector(`#${getSuggestionListId(source)}`);
+    if (!datalist) {
+      continue;
+    }
+    const values = source === "protein-structure-models"
+      ? getProteinStructureModelSuggestions()
+      : source === "protein-alignment-rows"
+        ? getProteinAlignmentRowSuggestions()
+        : getProteinStructureChainSuggestions(source);
+    datalist.replaceChildren(
+      ...values.map((value) => {
+        const option = document.createElement("option");
+        option.value = value;
+        return option;
+      })
+    );
+  }
+}
 
-  function refreshDynamicOptions() {
-    const optionValues = getCurrentOptionValues(elements.toolOptions, flatOptions);
-    for (const option of dependentOptions) {
-      const select = elements.toolOptions.querySelector(`select[name="${option.id}"]`);
-      if (!select) {
-        continue;
-      }
-      populateDependentSelect(select, option, optionValues, select.value);
-      optionValues[option.id] = select.value;
-    }
-    for (const option of visibilityOptions) {
-      const row = elements.toolOptions.querySelector(`[data-option-id="${option.id}"]`);
-      if (!row) {
-        continue;
-      }
-      const visibleWhen = option.visibleWhen;
-      row.hidden = optionValues[visibleWhen.option] !== visibleWhen.value;
-    }
-  }
+function serializeRuleListControl(...args) {
+  return toolOptionsUi.serializeRuleListControl(...args);
+}
 
-  for (const option of flatOptions) {
-    if (
-      dependentOptions.some((dependent) => dependent.dependsOn === option.id) ||
-      visibilityOptions.some((visibleOption) => visibleOption.visibleWhen.option === option.id)
-    ) {
-      elements.toolOptions
-        .querySelectorAll(`select[name="${option.id}"], input[name="${option.id}"]`)
-        .forEach((control) => control.addEventListener("change", refreshDynamicOptions));
-    }
-  }
-  refreshDynamicOptions();
+function serializeValueListControl(...args) {
+  return toolOptionsUi.serializeValueListControl(...args);
+}
+
+function parseRuleListValue(...args) {
+  return toolOptionsUi.parseRuleListValue(...args);
+}
+
+function parseValueListValue(...args) {
+  return toolOptionsUi.parseValueListValue(...args);
+}
+
+function appendValueListRow(...args) {
+  return toolOptionsUi.appendValueListRow(...args);
+}
+
+function appendValueListControl(...args) {
+  return toolOptionsUi.appendValueListControl(...args);
+}
+
+function appendRuleListRow(...args) {
+  return toolOptionsUi.appendRuleListRow(...args);
+}
+
+function appendRuleListControl(...args) {
+  return toolOptionsUi.appendRuleListControl(...args);
+}
+
+function appendToolOptionControl(...args) {
+  return toolOptionsUi.appendToolOptionControl(...args);
+}
+
+function appendOptionReferenceTable(...args) {
+  return toolOptionsUi.appendOptionReferenceTable(...args);
+}
+
+function updateFileOptionStatus(...args) {
+  return toolOptionsUi.updateFileOptionStatus(...args);
+}
+
+function setFileOptionFiles(...args) {
+  return toolOptionsUi.setFileOptionFiles(...args);
+}
+
+function createOptionLabelContent(...args) {
+  return toolOptionsUi.createOptionLabelContent(...args);
+}
+
+function positionOptionHelpPopover(...args) {
+  return toolOptionsUi.positionOptionHelpPopover(...args);
+}
+
+function flattenOptions(...args) {
+  return toolOptionsUi.flattenOptions(...args);
+}
+
+function flattenOptionNodes(...args) {
+  return toolOptionsUi.flattenOptionNodes(...args);
+}
+
+function normalizeVisibleWhenConditions(...args) {
+  return toolOptionsUi.normalizeVisibleWhenConditions(...args);
+}
+
+function visibleWhenMatches(...args) {
+  return toolOptionsUi.visibleWhenMatches(...args);
+}
+
+function getVisibleWhenOptionIds(...args) {
+  return toolOptionsUi.getVisibleWhenOptionIds(...args);
+}
+
+function getDefaultOptionValues(...args) {
+  return toolOptionsUi.getDefaultOptionValues(...args);
+}
+
+function getOptionDefaultValue(...args) {
+  return toolOptionsUi.getOptionDefaultValue(...args);
+}
+
+function getOptionControlValue(...args) {
+  return toolOptionsUi.getOptionControlValue(...args);
+}
+
+function persistLimitOptionControlValue(...args) {
+  return toolOptionsUi.persistLimitOptionControlValue(...args);
+}
+
+function getCurrentOptionValues(...args) {
+  return toolOptionsUi.getCurrentOptionValues(...args);
+}
+
+function getFilteredChoices(...args) {
+  return toolOptionsUi.getFilteredChoices(...args);
+}
+
+function populateDependentSelect(...args) {
+  return toolOptionsUi.populateDependentSelect(...args);
+}
+
+function normalizeDependentOptionValues(...args) {
+  return toolOptionsUi.normalizeDependentOptionValues(...args);
+}
+
+function wireDependentToolOptions(...args) {
+  return toolOptionsUi.wireDependentToolOptions(...args);
 }
 
 function restoreCurrentToolDefaults() {
   renderToolOptions(state.selectedTool.metadata.options ?? []);
+  renderInputPlacementOptions(state.selectedTool);
+  wireDependentToolOptions(state.selectedTool.metadata.options ?? []);
+  updateSamBamInputModeUi();
+  updateVcfInputModeUi();
+  updateAlignmentViewerInputUi();
+  updateFastaSourceInputUi();
+  updateFastaRegionExtractorSourceUi();
+  updateProteinStructureViewerUi();
+  sangerTraceWorkspace.update();
+  if (isReadMappingCoverageTool()) {
+    setReadMappingCoverageReadLayout("single");
+  }
+  updatePcrPrimerDesignUi();
+  updateMarkdownInputUi();
   clearToolOutput();
-}
-
-function appendReferenceTable(topic, parent = elements.selectedReferenceBody) {
-  const wrapper = document.createElement("div");
-  wrapper.className = "reference-table-wrap";
-  const table = document.createElement("table");
-  table.className = "reference-table";
-
-  const thead = document.createElement("thead");
-  const headerRow = document.createElement("tr");
-  for (const column of topic.columns) {
-    const th = document.createElement("th");
-    th.scope = "col";
-    th.textContent = column;
-    headerRow.append(th);
-  }
-  thead.append(headerRow);
-  table.append(thead);
-
-  const tbody = document.createElement("tbody");
-  for (const row of topic.rows) {
-    const tr = document.createElement("tr");
-    for (const cell of row) {
-      const td = document.createElement("td");
-      td.textContent = cell;
-      tr.append(td);
-    }
-    tbody.append(tr);
-  }
-  table.append(tbody);
-  wrapper.append(table);
-  parent.append(wrapper);
-}
-
-function appendGeneticCodeViewer(topic) {
-  const selectedCode = geneticCodes.find((code) => code.id === state.selectedGeneticCode) ?? geneticCodes[0];
-  const standardCode = geneticCodes[0];
-  const selectedCodons = getCodonsForCode(selectedCode);
-  const standardCodons = getCodonsForCode(standardCode);
-
-  const controls = document.createElement("div");
-  controls.className = "reference-controls";
-
-  const label = document.createElement("label");
-  label.className = "select-row";
-  label.textContent = "NCBI genetic code";
-
-  const select = document.createElement("select");
-  for (const code of geneticCodes) {
-    const option = document.createElement("option");
-    option.value = code.id;
-    option.textContent = `${code.id}. ${code.name}`;
-    select.append(option);
-  }
-  select.value = selectedCode.id;
-  select.addEventListener("change", () => {
-    state.selectedGeneticCode = select.value;
-    state.selectedGeneticCodeAminoAcid = "all";
-    state.selectedGeneticCodeCodon = "all";
-    renderSelectedReference();
-  });
-  label.append(select);
-  controls.append(label);
-
-  const aminoAcidLabel = document.createElement("label");
-  aminoAcidLabel.className = "select-row";
-  aminoAcidLabel.textContent = "Highlight amino acid";
-
-  const aminoAcidSelect = document.createElement("select");
-  const allOption = document.createElement("option");
-  allOption.value = "all";
-  allOption.textContent = "All codons";
-  aminoAcidSelect.append(allOption);
-
-  for (const aa of getAminoAcidHighlightOptions(selectedCodons)) {
-    const option = document.createElement("option");
-    option.value = aa;
-    option.textContent = `${aa} - ${aminoAcidNames.get(aa) ?? "Termination"}`;
-    aminoAcidSelect.append(option);
-  }
-
-  aminoAcidSelect.value = state.selectedGeneticCodeAminoAcid;
-  aminoAcidSelect.addEventListener("change", () => {
-    state.selectedGeneticCodeAminoAcid = aminoAcidSelect.value;
-    renderSelectedReference();
-  });
-  aminoAcidLabel.append(aminoAcidSelect);
-  controls.append(aminoAcidLabel);
-
-  const codonLabel = document.createElement("label");
-  codonLabel.className = "select-row";
-  codonLabel.textContent = "Highlight codon";
-
-  const codonSelect = document.createElement("select");
-  const allCodonOption = document.createElement("option");
-  allCodonOption.value = "all";
-  allCodonOption.textContent = "All codons";
-  codonSelect.append(allCodonOption);
-
-  for (const codon of selectedCodons.map((item) => item.codon).sort()) {
-    const option = document.createElement("option");
-    option.value = codon;
-    option.textContent = codon;
-    codonSelect.append(option);
-  }
-
-  codonSelect.value = state.selectedGeneticCodeCodon;
-  codonSelect.addEventListener("change", () => {
-    state.selectedGeneticCodeCodon = codonSelect.value;
-    renderSelectedReference();
-  });
-  codonLabel.append(codonSelect);
-  controls.append(codonLabel);
-  elements.selectedReferenceBody.append(controls);
-
-  const stats = document.createElement("div");
-  stats.className = "reference-stats";
-  stats.append(makeStat("Stops", selectedCodons.filter((item) => item.isStop).map((item) => item.codon).join(", ")));
-  stats.append(makeStat("Starts", selectedCodons.filter((item) => item.isStart).map((item) => item.codon).join(", ")));
-  elements.selectedReferenceBody.append(stats);
-
-  const grid = document.createElement("div");
-  grid.className = "codon-grid";
-  for (const item of selectedCodons) {
-    grid.append(makeCodonEntry(item, state.selectedGeneticCodeAminoAcid, state.selectedGeneticCodeCodon));
-  }
-  elements.selectedReferenceBody.append(grid);
-
-  const differences = selectedCodons
-    .map((item, index) => ({ item, standard: standardCodons[index] }))
-    .filter(({ item, standard }) => item.aa !== standard.aa || item.isStart !== standard.isStart);
-
-  const differenceSection = document.createElement("section");
-  differenceSection.className = "reference-subsection";
-  const heading = document.createElement("h3");
-  heading.textContent = "Differences From Standard Code";
-  differenceSection.append(heading);
-
-  if (differences.length === 0) {
-    const none = document.createElement("p");
-    none.className = "summary";
-    none.textContent = "No codon assignment or start-codon differences.";
-    differenceSection.append(none);
-  } else {
-    const differenceTopic = {
-      columns: ["Codon", `${selectedCode.id}. ${selectedCode.name}`, "Standard"],
-      rows: differences.map(({ item, standard }) => [
-        item.codon,
-        formatCodonDifference(item),
-        formatCodonDifference(standard)
-      ])
-    };
-    appendReferenceTable(differenceTopic, differenceSection);
-  }
-  elements.selectedReferenceBody.append(differenceSection);
-
-  appendTopicNotesAndCitations(topic);
-}
-
-function appendCitationGuidance(topic) {
-  const citationText =
-    "Stothard P. The sequence manipulation suite: JavaScript programs for analyzing and formatting protein and DNA sequences. BioTechniques. 2000 Jun;28(6):1102-1104. doi: 10.2144/00286ir01. PMID: 10868275.";
-  const bibtex = `@article{Stothard2000SequenceManipulationSuite,
-  author = {Stothard, Paul},
-  title = {The Sequence Manipulation Suite: JavaScript Programs for Analyzing and Formatting Protein and DNA Sequences},
-  journal = {BioTechniques},
-  year = {2000},
-  volume = {28},
-  number = {6},
-  pages = {1102--1104},
-  doi = {10.2144/00286ir01},
-  pmid = {10868275}
-}`;
-
-  const citation = document.createElement("section");
-  citation.className = "citation-card";
-
-  const heading = document.createElement("h3");
-  heading.textContent = "Recommended Citation";
-  citation.append(heading);
-
-  const text = document.createElement("p");
-  text.textContent = citationText;
-  citation.append(text);
-
-  const links = document.createElement("div");
-  links.className = "citation-links";
-
-  const doi = document.createElement("a");
-  doi.href = "https://doi.org/10.2144/00286ir01";
-  doi.target = "_blank";
-  doi.rel = "noreferrer";
-  doi.textContent = "DOI: 10.2144/00286ir01";
-  links.append(doi);
-
-  const pubmed = document.createElement("a");
-  pubmed.href = "https://pubmed.ncbi.nlm.nih.gov/10868275/";
-  pubmed.target = "_blank";
-  pubmed.rel = "noreferrer";
-  pubmed.textContent = "PMID: 10868275";
-  links.append(pubmed);
-
-  citation.append(links);
-  elements.selectedReferenceBody.append(citation);
-
-  const bibtexLabel = document.createElement("label");
-  bibtexLabel.className = "citation-bibtex";
-  bibtexLabel.append("BibTeX");
-  const bibtexOutput = document.createElement("textarea");
-  bibtexOutput.readOnly = true;
-  bibtexOutput.spellcheck = false;
-  bibtexOutput.value = bibtex;
-  bibtexLabel.append(bibtexOutput);
-  elements.selectedReferenceBody.append(bibtexLabel);
-
-  appendTopicNotesAndCitations(topic);
 }
 
 function makeMailtoLink(template) {
@@ -1919,12 +3447,41 @@ function makeMailtoLink(template) {
 
 SMS3 version: ${elements.appVersion.textContent || "unknown"}
 Current page: ${window.location.href}
+Public site: ${siteConfig.publicUrl}
 `;
-  return `mailto:paul.stothard@gmail.com?subject=${encodeURIComponent(template.subject)}&body=${encodeURIComponent(body)}`;
+  return `mailto:${siteConfig.feedbackEmail}?subject=${encodeURIComponent(template.subject)}&body=${encodeURIComponent(body)}`;
+}
+
+function makeToolFeedbackLink(metadata) {
+  const subject = `SMS3 tool feedback: ${metadata.name}`;
+  const body = `Tool: ${metadata.name}
+Tool id: ${metadata.id}
+
+What would you like to share?
+
+Feedback, request, or issue:
+
+Relevant options, steps, browser, or operating system:
+
+For incorrect output or a bug, what did you expect?
+
+Do not include private sequence, table, or output content unless you intentionally choose to add it.
+
+SMS3 version: ${elements.appVersion.textContent || "unknown"}
+Current page: ${window.location.href}
+Public site: ${siteConfig.publicUrl}
+`;
+  return `mailto:${siteConfig.feedbackEmail}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
 }
 
 function renderFeedbackTemplates() {
   elements.feedbackTemplates.textContent = "";
+  const note = document.createElement("p");
+  note.className = "summary feedback-config-note";
+  note.textContent =
+    `Feedback mail opens to ${siteConfig.feedbackEmail}. Planned public URL: ${siteConfig.publicUrl}. ` +
+    `${siteConfig.analytics.provider} analytics is ${siteConfig.analytics.status}; ${siteConfig.analytics.note}`;
+  elements.feedbackTemplates.append(note);
 
   for (const template of feedbackTemplates) {
     const link = document.createElement("a");
@@ -1942,2917 +3499,214 @@ function renderFeedbackTemplates() {
   }
 }
 
-async function loadAppVersion() {
-  const versionUrls = ["./src/app-version.json", "./package.json"];
-  try {
-    for (const url of versionUrls) {
-      const response = await fetch(url, { cache: "no-store" });
-      if (!response.ok) {
-        continue;
-      }
-
-      const versionData = await response.json();
-      if (versionData.version) {
-        elements.appVersion.textContent = `v${versionData.version}`;
-        return;
-      }
-    }
-  } catch {
-    elements.appVersion.textContent = "";
-  }
-}
-
-function getAminoAcidHighlightOptions(codons) {
-  const present = new Set(codons.map((item) => item.aa));
-  const ordered = "ACDEFGHIKLMNPQRSTVWYBJOUXZ".split("").filter((aa) => present.has(aa));
-  if (present.has("*")) {
-    ordered.push("*");
-  }
-  return ordered;
-}
-
-function makeCodonEntry(item, selectedAminoAcid = "all", selectedCodon = "all") {
-  const entry = document.createElement("div");
-  const classes = ["codon-cell"];
-  const isSelectedCodon = selectedCodon !== "all" && item.codon === selectedCodon;
-  if (item.isStop) {
-    classes.push("stop");
-  } else if (item.isStart) {
-    classes.push("start");
-  }
-  if (isSelectedCodon) {
-    classes.push("highlight", "codon-highlight");
-  } else if (selectedCodon !== "all") {
-    classes.push("dimmed");
-  } else if (selectedAminoAcid !== "all") {
-    classes.push(item.aa === selectedAminoAcid ? "highlight" : "dimmed");
-  }
-  entry.className = classes.join(" ");
-  entry.title = `${item.codon}: ${aminoAcidNames.get(item.aa) ?? "Termination"}`;
-
-  const codon = document.createElement("span");
-  codon.className = "codon-triplet";
-  codon.textContent = item.codon;
-
-  const aa = document.createElement("span");
-  aa.className = "codon-aa";
-  aa.textContent = item.aa;
-
-  entry.append(codon, aa);
-
-  if (item.isStart || item.isStop) {
-    const marker = document.createElement("span");
-    marker.className = "codon-marker";
-    marker.textContent = item.isStop ? "Stop" : "Start";
-    entry.append(marker);
-  }
-
-  return entry;
-}
-
-function makeStat(label, value) {
-  const item = document.createElement("div");
-  item.className = "reference-stat";
-  const title = document.createElement("span");
-  title.textContent = label;
-  const detail = document.createElement("strong");
-  detail.textContent = value || "None";
-  item.append(title, detail);
-  return item;
-}
-
-function formatCodonDifference(item) {
-  const labels = [item.aa];
-  if (item.isStart) {
-    labels.push("start");
-  }
-  if (item.isStop) {
-    labels.push("stop");
-  }
-  return labels.join(", ");
-}
-
-function appendTopicNotesAndCitations(topic) {
-  if (topic.notes.length > 0) {
-    const list = document.createElement("ul");
-    list.className = "reference-notes";
-    for (const note of topic.notes) {
-      const item = document.createElement("li");
-      item.textContent = note;
-      list.append(item);
-    }
-    elements.selectedReferenceBody.append(list);
-  }
-
-  if (topic.citations.length > 0) {
-    const citations = document.createElement("p");
-    citations.className = "reference-citations";
-    citations.append("Sources: ");
-    topic.citations.forEach((citation, index) => {
-      if (index > 0) {
-        citations.append("; ");
-      }
-      const link = document.createElement("a");
-      link.href = citation.url;
-      link.target = "_blank";
-      link.rel = "noreferrer";
-      link.textContent = citation.label;
-      citations.append(link);
-    });
-    elements.selectedReferenceBody.append(citations);
-  }
+function loadAppVersion() {
+  elements.appVersion.textContent = appVersion ? `v${appVersion}` : "";
 }
 
 function renderSelectedReference() {
-  const topic =
-    referenceTopics.find((item) => item.id === state.selectedReference) ?? referenceTopics[0];
-  elements.selectedReferenceTitle.textContent = topic.title;
-  elements.selectedReferenceBody.textContent = "";
-
-  const summary = document.createElement("p");
-  summary.className = "summary";
-  summary.textContent = topic.summary;
-  elements.selectedReferenceBody.append(summary);
-
-  if (topic.interactive === "genetic-codes") {
-    appendGeneticCodeViewer(topic);
-    return;
-  }
-
-  if (topic.interactive === "citation") {
-    appendCitationGuidance(topic);
-    return;
-  }
-
-  if (topic.rows) {
-    appendReferenceTable(topic);
-  }
-
-  appendTopicNotesAndCitations(topic);
+  referencePage.renderSelectedReference();
 }
 
-function getOptions() {
-  const values = {};
-  const optionRoot = elements.toolOptions;
-
-  for (const option of flattenOptions(state.selectedTool.metadata.options ?? [])) {
-    if (option.type === "radio" || option.type === "select") {
-      values[option.id] =
-        optionRoot.querySelector(`select[name="${option.id}"]`)?.value ??
-        optionRoot.querySelector(`input[name="${option.id}"]:checked`)?.value ??
-        option.defaultValue;
-    } else if (option.type === "checkbox") {
-      values[option.id] = optionRoot.querySelector(`#${option.id}`)?.checked ?? option.defaultValue;
-    } else if (option.type === "number") {
-      values[option.id] =
-        Number.parseInt(optionRoot.querySelector(`#${option.id}`)?.value, 10) ||
-        option.defaultValue;
-    } else if (option.type === "text") {
-      values[option.id] = optionRoot.querySelector(`#${option.id}`)?.value ?? option.defaultValue ?? "";
-    }
-  }
-
-  return values;
+function getOptions(...args) {
+  const options = toolInputShell.getOptions(...args);
+  return isAlignmentViewerTool() ? getAlignmentViewerOptions(options) : options;
 }
+
+const outputShell = createOutputShellController({
+  elements,
+  state,
+  workspaceInputSources,
+  addMessage,
+  refreshWorkspaceSequences,
+  getActiveWorkflowDefinition,
+  getSelectedWorkflowPreset,
+  flattenOptions,
+  getOptions,
+  pluralize
+});
 
 function renderMessages(result) {
-  elements.messages.textContent = "";
-
-  const summary = document.createElement("div");
-  summary.className = "message info";
-  summary.textContent = `${pluralize(result.recordsProcessed, "record")}, ${pluralize(result.basesProcessed, "base")}, ${pluralize(result.charactersRemoved, "character")} removed.`;
-  elements.messages.append(summary);
-
-  appendOutputDetails(elements.messages, getToolOutputDetails(result));
-  appendWarningSummary(elements.messages, result.warnings);
+  outputShell.renderMessages(result);
 }
 
-function appendWarningSummary(parent, warnings, formatter = (warning) => warning) {
-  if (!warnings?.length) {
-    return;
-  }
-
-  const details = document.createElement("details");
-  details.className = "message warning warning-summary";
-
-  const summary = document.createElement("summary");
-  summary.textContent = pluralize(warnings.length, "warning");
-  details.append(summary);
-
-  const list = document.createElement("ul");
-  for (const warning of warnings) {
-    const item = document.createElement("li");
-    item.textContent = formatter(warning);
-    list.append(item);
-  }
-  details.append(list);
-  parent.append(details);
-}
-
-function describeStructuredOutput(id, stream) {
-  if (!stream) {
-    return id;
-  }
-  const label = describeWorkflowStreamChoice({ id, ...stream });
-  if (stream.kind === "table") {
-    return `${label}: ${pluralize(stream.rows?.length ?? 0, "row")}, ${pluralize(stream.columns?.length ?? 0, "column")}`;
-  }
-  if (stream.kind === "sequence-records") {
-    return `${label}: ${pluralize(stream.records?.length ?? 0, "record")}`;
-  }
-  if (stream.kind === "warnings") {
-    return `${label}: ${pluralize(stream.warnings?.length ?? 0, "warning")}`;
-  }
-  if (stream.kind === "text") {
-    return `${label}: ${describeStream(stream)}`;
-  }
-  if (stream.kind === "collection") {
-    return `${label}: set with ${pluralize(stream.items?.length ?? 0, "item")}`;
-  }
-  if (stream.records) {
-    return `${label}: ${describeStream(stream)} (${pluralize(stream.records.length, "record")})`;
-  }
-  return `${label}: ${describeStream(stream)}`;
+function appendWarningSummary(parent, warnings, formatter) {
+  outputShell.appendWarningSummary(parent, warnings, formatter);
 }
 
 function appendOutputDetails(parent, detailsRows) {
-  const rows = detailsRows.filter(Boolean);
-  if (rows.length === 0) {
-    return;
-  }
-
-  const details = document.createElement("details");
-  details.className = "message output-details";
-  const summary = document.createElement("summary");
-  summary.textContent = "Output details";
-  details.append(summary);
-
-  const list = document.createElement("dl");
-  for (const [label, value] of rows) {
-    const term = document.createElement("dt");
-    term.textContent = label;
-    const description = document.createElement("dd");
-    description.textContent = value;
-    list.append(term, description);
-  }
-  details.append(list);
-  parent.append(details);
+  outputShell.appendOutputDetails(parent, detailsRows);
 }
 
-function getToolOutputDetails(result) {
-  const structuredOutputs = Object.entries(result.streams ?? {})
-    .filter(([id]) => id !== "primary")
-    .map(([id, stream]) => describeStructuredOutput(id, stream))
-    .join("; ");
+function appendWorkflowWorkspacePromotionActions(parent, result, workflowDefinition) {
+  outputShell.appendWorkflowWorkspacePromotionActions(parent, result, workflowDefinition);
+}
 
-  return [
-    ["Processed", `${pluralize(result.recordsProcessed, "record")}, ${pluralize(result.basesProcessed, "base")}`],
-    result.charactersRemoved > 0
-      ? ["Cleaned", `${pluralize(result.charactersRemoved, "character")} removed`]
-      : null,
-    ["Default export", `${result.download?.filename ?? "sms3-output.txt"} (${result.download?.mimeType ?? "text/plain"})`],
-    structuredOutputs ? ["Available results", structuredOutputs] : null,
-    result.visual?.svg ? ["Visual output", "SVG preview"] : null
-  ];
+async function buildToolOutputDescription(result, inputText, options) {
+  return outputShell.buildToolOutputDescription(result, inputText, options);
 }
 
 function getWorkflowOutputDetails(result, formatted) {
-  return [
-    ["Workflow run", pluralize(result.steps?.length ?? 0, "step")],
-    ["Current output", formatted.summary],
-    ["Default export", `${formatted.filename ?? "sms3-workflow-output.txt"} (${formatted.mimeType ?? "text/plain"})`],
-    formatted.tableStream
-      ? ["Available results", describeStructuredOutput("table", formatted.tableStream)]
-      : null
-  ];
+  return outputShell.getWorkflowOutputDetails(result, formatted);
 }
 
-function getOutputSearchParts(scope) {
-  return scope === "workflow"
-    ? {
-        textarea: elements.workflowOutput,
-        preview: elements.workflowOutputHighlight,
-        input: elements.workflowOutputSearch,
-        previous: elements.workflowOutputSearchPrevious,
-        next: elements.workflowOutputSearchNext,
-        count: elements.workflowOutputSearchCount,
-        table: elements.workflowTableOutput
-      }
-    : {
-        textarea: elements.toolOutput,
-        preview: elements.toolOutputHighlight,
-        input: elements.outputSearch,
-        previous: elements.outputSearchPrevious,
-        next: elements.outputSearchNext,
-        count: elements.outputSearchCount,
-        table: elements.toolTableOutput
-      };
+function setOutputSearchRowVisible(scope, visible) {
+  outputShell.setOutputSearchRowVisible(scope, visible);
 }
 
-function getOutputViewParts(scope) {
-  return scope === "workflow"
-    ? {
-        tabs: elements.workflowOutputViewTabs,
-        note: elements.workflowOutputViewNote,
-        actions: elements.workflowOutputActions,
-        copyButton: elements.workflowCopyOutput,
-        downloadButton: elements.workflowDownloadOutput,
-        textarea: elements.workflowOutput,
-        preview: elements.workflowOutputHighlight,
-        table: elements.workflowTableOutput
-      }
-    : {
-        tabs: elements.outputViewTabs,
-        actions: elements.toolOutputActions,
-        copyButton: elements.copyOutput,
-        downloadButton: elements.downloadOutput,
-        textarea: elements.toolOutput,
-        preview: elements.toolOutputHighlight,
-        table: elements.toolTableOutput
-      };
-}
-
-function getOutputActionKind(mimeType = "", label = "") {
-  const normalized = `${mimeType} ${label}`.toLowerCase();
-  if (normalized.includes("svg")) {
-    return "SVG";
-  }
-  if (normalized.includes("fasta")) {
-    return "FASTA";
-  }
-  if (normalized.includes("csv")) {
-    return "CSV";
-  }
-  if (normalized.includes("tsv") || normalized.includes("tab-separated")) {
-    return "TSV";
-  }
-  if (normalized.includes("json")) {
-    return "JSON";
-  }
-  if (normalized.includes("report")) {
-    return "report";
-  }
-  return "text";
-}
-
-function updateOutputActions(scope, { hidden = false, mimeType = "", label = "" } = {}) {
-  const parts = getOutputViewParts(scope);
-  parts.actions.hidden = hidden;
-  if (hidden) {
-    return;
-  }
-  const kind = getOutputActionKind(mimeType, label);
-  parts.downloadButton.textContent = `Download ${kind}`;
-  parts.copyButton.textContent = `Copy ${kind}`;
-}
-
-function appendOutputText(parent, text) {
-  if (text) {
-    parent.append(document.createTextNode(text));
-  }
-}
-
-function renderOutputHighlightWindow(scope, text, query) {
-  const search = state.outputSearch[scope];
-  const parts = getOutputSearchParts(scope);
-  const currentMatch = search.matches[search.currentIndex];
-  if (!currentMatch) {
-    parts.preview.hidden = true;
-    parts.textarea.style.visibility = "";
-    return;
-  }
-
-  const halfWindow = Math.floor(OUTPUT_HIGHLIGHT_WINDOW / 2);
-  const windowStart = Math.max(0, currentMatch.start - halfWindow);
-  const windowEnd = Math.min(text.length, currentMatch.end + halfWindow);
-  const windowMatches = search.matches.filter((match) => match.end > windowStart && match.start < windowEnd);
-  parts.preview.textContent = "";
-  if (windowStart > 0) {
-    appendOutputText(parts.preview, `... ${windowStart.toLocaleString()} characters before current match ...\n`);
-  }
-
-  let cursor = windowStart;
-  for (const match of windowMatches) {
-    appendOutputText(parts.preview, text.slice(cursor, Math.max(cursor, match.start)));
-    const mark = document.createElement("mark");
-    mark.className = match === currentMatch ? "current-output-match" : "";
-    mark.textContent = text.slice(Math.max(match.start, windowStart), Math.min(match.end, windowEnd));
-    parts.preview.append(mark);
-    cursor = Math.min(match.end, windowEnd);
-  }
-  appendOutputText(parts.preview, text.slice(cursor, windowEnd));
-  if (windowEnd < text.length) {
-    appendOutputText(parts.preview, `\n... ${(text.length - windowEnd).toLocaleString()} characters after current match ...`);
-  }
-  parts.preview.hidden = false;
-  parts.textarea.style.visibility = "hidden";
-}
-
-function renderOutputHighlight(scope) {
-  const search = state.outputSearch[scope];
-  const parts = getOutputSearchParts(scope);
-  const text = parts.textarea.value;
-  const query = parts.input.value;
-  parts.preview.textContent = "";
-
-  if (!query || search.matches.length === 0) {
-    parts.preview.hidden = true;
-    parts.textarea.style.visibility = "";
-    return;
-  }
-  if (text.length > OUTPUT_HIGHLIGHT_LIMIT) {
-    renderOutputHighlightWindow(scope, text, query);
-    return;
-  }
-
-  let cursor = 0;
-  search.matches.forEach((match, index) => {
-    appendOutputText(parts.preview, text.slice(cursor, match.start));
-    const mark = document.createElement("mark");
-    mark.className = index === search.currentIndex ? "current-output-match" : "";
-    mark.textContent = text.slice(match.start, match.end);
-    parts.preview.append(mark);
-    cursor = match.end;
-  });
-  appendOutputText(parts.preview, text.slice(cursor));
-  parts.preview.hidden = false;
-  parts.textarea.style.visibility = "hidden";
-}
-
-function findLiteralMatches(text, query) {
-  const haystack = text.toLowerCase();
-  const needle = query.toLowerCase();
-  const matches = [];
-  let index = haystack.indexOf(needle);
-  while (index !== -1) {
-    matches.push({ start: index, end: index + needle.length });
-    index = haystack.indexOf(needle, index + Math.max(needle.length, 1));
-  }
-  return matches;
-}
-
-function normalizeSequenceSearchText(text) {
-  const normalized = [];
-  const sourceIndexes = [];
-  for (let index = 0; index < text.length; index += 1) {
-    const character = text[index];
-    if (/[A-Za-z*]/.test(character)) {
-      normalized.push(character.toLowerCase());
-      sourceIndexes.push(index);
-    }
-  }
-  return { text: normalized.join(""), sourceIndexes };
-}
-
-function findSequenceLikeMatches(text, query) {
-  if (!/^[A-Za-z*\s]+$/.test(query)) {
-    return [];
-  }
-  const normalizedQuery = normalizeSequenceSearchText(query).text;
-  if (normalizedQuery.length < 3) {
-    return [];
-  }
-  const normalizedText = normalizeSequenceSearchText(text);
-  const matches = [];
-  let index = normalizedText.text.indexOf(normalizedQuery);
-  while (index !== -1) {
-    matches.push({
-      start: normalizedText.sourceIndexes[index],
-      end: normalizedText.sourceIndexes[index + normalizedQuery.length - 1] + 1
-    });
-    index = normalizedText.text.indexOf(normalizedQuery, index + Math.max(normalizedQuery.length, 1));
-  }
-  return matches;
-}
-
-function findOutputTextMatches(text, query) {
-  const literalMatches = findLiteralMatches(text, query);
-  return literalMatches.length > 0 ? literalMatches : findSequenceLikeMatches(text, query);
-}
-
-function selectOutputMatch(scope) {
-  if (isTableViewActive(scope)) {
-    selectTableOutputMatch(scope);
-    return;
-  }
-  const search = state.outputSearch[scope];
-  const parts = getOutputSearchParts(scope);
-  if (search.currentIndex < 0 || search.matches.length === 0) {
-    return;
-  }
-  if (!parts.preview.hidden) {
-    const mark = parts.preview.querySelector(".current-output-match");
-    if (mark) {
-      const verticalTarget = mark.offsetTop - parts.preview.clientHeight / 2 + mark.offsetHeight / 2;
-      const horizontalTarget = mark.offsetLeft - parts.preview.clientWidth / 2 + mark.offsetWidth / 2;
-      parts.preview.scrollTop = Math.max(0, verticalTarget);
-      parts.preview.scrollLeft = Math.max(0, horizontalTarget);
-    }
-    return;
-  }
-  const match = search.matches[search.currentIndex];
-  parts.textarea.focus({ preventScroll: true });
-  parts.textarea.setSelectionRange(match.start, match.end);
+function updateOutputActions(scope, options) {
+  outputShell.updateOutputActions(scope, options);
 }
 
 function renderOutputSearch(scope) {
-  if (isTableViewActive(scope)) {
-    renderTableOutputSearch(scope);
-    return;
-  }
-  const search = state.outputSearch[scope];
-  const parts = getOutputSearchParts(scope);
-  if (parts.textarea.dataset.visualOutput === "true") {
-    search.matches = [];
-    search.currentIndex = -1;
-    parts.count.textContent = "No search";
-    parts.previous.disabled = true;
-    parts.next.disabled = true;
-    parts.preview.hidden = true;
-    parts.preview.textContent = "";
-    return;
-  }
-  const query = parts.input.value;
-  if (!query) {
-    search.matches = [];
-    search.currentIndex = -1;
-    parts.count.textContent = "No search";
-    parts.previous.disabled = true;
-    parts.next.disabled = true;
-    renderOutputHighlight(scope);
-    return;
-  }
-
-  search.matches = findOutputTextMatches(parts.textarea.value, query);
-  search.currentIndex = search.matches.length > 0 ? 0 : -1;
-  parts.count.textContent =
-    search.matches.length > 0 ? `1 of ${search.matches.length}` : "No matches";
-  parts.previous.disabled = search.matches.length < 2;
-  parts.next.disabled = search.matches.length < 2;
-  renderOutputHighlight(scope);
-  selectOutputMatch(scope);
+  outputShell.renderOutputSearch(scope);
 }
 
 function queueOutputSearch(scope) {
-  window.clearTimeout(state.outputSearch[scope].debounceTimer);
-  state.outputSearch[scope].debounceTimer = window.setTimeout(() => {
-    renderOutputSearch(scope);
-    getOutputSearchParts(scope).input.closest(".output-search-row")?.scrollIntoView({
-      block: "nearest",
-      inline: "nearest"
-    });
-  }, 180);
+  outputShell.queueOutputSearch(scope);
 }
 
 function moveOutputSearch(scope, direction) {
-  const search = state.outputSearch[scope];
-  if (search.matches.length === 0) {
-    return;
-  }
-  const scrollX = window.scrollX;
-  const scrollY = window.scrollY;
-  search.currentIndex = (search.currentIndex + direction + search.matches.length) % search.matches.length;
-  const parts = getOutputSearchParts(scope);
-  parts.count.textContent = `${search.currentIndex + 1} of ${search.matches.length}`;
-  if (isTableViewActive(scope)) {
-    selectTableOutputMatch(scope);
-    window.scrollTo(scrollX, scrollY);
-    requestAnimationFrame(() => window.scrollTo(scrollX, scrollY));
-    return;
-  }
-  renderOutputHighlight(scope);
-  selectOutputMatch(scope);
-  window.scrollTo(scrollX, scrollY);
-  requestAnimationFrame(() => window.scrollTo(scrollX, scrollY));
-}
-
-function rememberPageScrollForOutputButton(event) {
-  const button = event.currentTarget;
-  button.dataset.pageScrollX = String(window.scrollX);
-  button.dataset.pageScrollY = String(window.scrollY);
-  event.preventDefault();
-}
-
-function restorePageScrollForOutputButton(event) {
-  const button = event.currentTarget;
-  const scrollX = Number.parseFloat(button.dataset.pageScrollX ?? String(window.scrollX));
-  const scrollY = Number.parseFloat(button.dataset.pageScrollY ?? String(window.scrollY));
-  window.scrollTo(scrollX, scrollY);
-  requestAnimationFrame(() => window.scrollTo(scrollX, scrollY));
-  window.setTimeout(() => window.scrollTo(scrollX, scrollY), 0);
+  outputShell.moveOutputSearch(scope, direction);
 }
 
 function keepOutputSearchButtonFromScrollingPage(button) {
-  button.addEventListener("mousedown", rememberPageScrollForOutputButton);
-  button.addEventListener("click", restorePageScrollForOutputButton);
+  outputShell.keepOutputSearchButtonFromScrollingPage(button);
 }
 
-function clearToolInputOutput() {
-  elements.sequenceInput.value = "";
-  elements.splitInputPanel.querySelectorAll(".split-input-textarea").forEach((textarea) => {
-    textarea.value = "";
-  });
-  elements.toolOutput.value = "";
-  elements.toolOutput.dataset.rawOutput = "";
-  elements.toolOutput.dataset.tableTsv = "";
-  elements.toolOutput.dataset.visualOutput = "false";
-  elements.toolOutputHighlight.hidden = true;
-  elements.toolOutputHighlight.textContent = "";
-  elements.toolOutput.hidden = false;
-  clearToolTableOutput();
-  elements.toolOutput.dataset.filename = "sms3-output.txt";
-  elements.toolOutput.dataset.mimeType = "text/plain";
-  elements.visualOutput.hidden = true;
-  elements.visualOutput.textContent = "";
-  elements.messages.textContent = "";
-  state.currentToolOutputChoices = [];
-  elements.outputFormatSelect.textContent = "";
-  elements.outputViewTabs.hidden = true;
-  elements.toolOutputActions.hidden = true;
-  setOutputFormatLabel("tool", null);
-  renderOutputSearch("tool");
-  updateInputActionButtons();
+function resetToolOutputViewer(message) {
+  outputShell.resetToolOutputViewer(message);
 }
 
 function clearToolOutput() {
-  elements.toolOutput.value = "";
-  elements.toolOutput.dataset.rawOutput = "";
-  elements.toolOutput.dataset.tableTsv = "";
-  elements.toolOutput.dataset.visualOutput = "false";
-  elements.toolOutputHighlight.hidden = true;
-  elements.toolOutputHighlight.textContent = "";
-  elements.toolOutput.hidden = false;
-  clearToolTableOutput();
-  elements.visualOutput.hidden = true;
-  elements.visualOutput.textContent = "";
-  elements.messages.textContent = "";
-  state.currentToolOutputChoices = [];
-  elements.outputFormatSelect.textContent = "";
-  elements.outputViewTabs.hidden = true;
-  elements.toolOutputActions.hidden = true;
-  setOutputFormatLabel("tool", null);
-  renderOutputSearch("tool");
-}
-
-function loadSelectedToolExample() {
-  if (state.selectedTool.metadata.splitInput) {
-    renderSplitInputPanel(state.selectedTool);
-  } else {
-    elements.sequenceInput.value = toolRequiresInput(state.selectedTool) ? state.selectedTool.example ?? "" : "";
-  }
-  clearToolOutput();
-  updateInputActionButtons();
-}
-
-function updateInputActionButtons() {
-  elements.clearInput.hidden = false;
-  elements.workflowClearInput.hidden = false;
-}
-
-function getOutputFormatOption(tool = state.selectedTool) {
-  return flattenOptions(tool?.metadata.options ?? []).find((option) => option.id === "outputFormat");
-}
-
-function getSelectedToolOutputFormat(tool = state.selectedTool) {
-  const option = getOutputFormatOption(tool);
-  if (!option) {
-    return null;
-  }
-  const selected = elements.toolOptions.querySelector(`select[name="${option.id}"]`)?.value
-    ?? elements.toolOptions.querySelector(`input[name="${option.id}"]:checked`)?.value;
-  return selected ?? option.defaultValue;
-}
-
-function getCurrentToolOutputFormatLabel(result) {
-  const options = flattenOptions(state.selectedTool.metadata.options ?? []);
-  const values = getOptions();
-  const formatOption = options.find((option) => option.id === "outputFormat")
-    ?? options.find((option) => option.label === "Output format");
-
-  if (formatOption) {
-    const choice = (formatOption.choices ?? []).find((item) => item.value === values[formatOption.id]);
-    if (choice?.label) {
-      return choice.label;
-    }
-  }
-
-  const filename = result.download?.filename?.toLowerCase() ?? "";
-  const mimeType = result.download?.mimeType ?? "";
-  if (filename.endsWith(".tsv") || mimeType === "text/tab-separated-values") {
-    return "TSV table";
-  }
-  if (filename.endsWith(".csv") || mimeType === "text/csv") {
-    return "CSV table";
-  }
-  if (filename.endsWith(".svg") || mimeType.includes("svg")) {
-    return "SVG";
-  }
-  if (filename.endsWith(".fasta") || filename.endsWith(".fa")) {
-    return "FASTA";
-  }
-  if (mimeType.includes("json")) {
-    return "JSON";
-  }
-  return "Text";
-}
-
-function getBaseMimeType(mimeType = "") {
-  return String(mimeType).split(";")[0].trim().toLowerCase();
-}
-
-function isDelimitedDownload(format = "", download = {}) {
-  const selectedFormat = String(format ?? "").toLowerCase();
-  const filename = String(download.filename ?? "").toLowerCase();
-  const mimeType = getBaseMimeType(download.mimeType);
-  return (
-    selectedFormat === "tsv" ||
-    selectedFormat === "csv" ||
-    selectedFormat.endsWith("-tsv") ||
-    selectedFormat.endsWith("-csv") ||
-    filename.endsWith(".tsv") ||
-    filename.endsWith(".csv") ||
-    mimeType === "text/tab-separated-values" ||
-    mimeType === "text/csv"
-  );
-}
-
-function normalizeStreamSelector(value = "") {
-  return String(value).toLowerCase().replace(/[^a-z0-9]+/g, "");
-}
-
-function scoreTableStreamForFormat(streamId, selectedFormat) {
-  const id = normalizeStreamSelector(streamId);
-  const format = normalizeStreamSelector(selectedFormat);
-  if (!format) {
-    return 0;
-  }
-  let score = 0;
-  if (id === format) {
-    score += 20;
-  }
-  if (format.includes(id) || id.includes(format)) {
-    score += 12;
-  }
-  if (format.includes("summary") && id.includes("summary")) {
-    score += 10;
-  }
-  if ((format.includes("missing") || format.includes("rows")) && id.includes("missing")) {
-    score += 10;
-  }
-  if ((format.includes("issue") || format.includes("validat")) && id.includes("issue")) {
-    score += 10;
-  }
-  if ((format.includes("duplicate") || format.includes("dup")) && id.includes("duplicate")) {
-    score += 10;
-  }
-  return score;
-}
-
-function getDelimitedTableStream(result, selectedFormat) {
-  if (result.streams?.table?.kind === "table") {
-    return result.streams.table;
-  }
-  const tableStreams = Object.entries(result.streams ?? {}).filter(
-    ([, stream]) => stream?.kind === "table" && Array.isArray(stream.rows)
-  );
-  if (tableStreams.length === 0) {
-    return null;
-  }
-  if (tableStreams.length === 1) {
-    return tableStreams[0][1];
-  }
-  return tableStreams
-    .map(([id, stream], index) => ({ id, stream, index, score: scoreTableStreamForFormat(id, selectedFormat) }))
-    .sort((left, right) => right.score - left.score || left.index - right.index)[0].stream;
-}
-
-function alignTsv(tsv) {
-  const rows = String(tsv ?? "")
-    .split(/\r?\n/)
-    .map((line) => line.split("\t"));
-  const widths = [];
-
-  for (const row of rows) {
-    row.forEach((cell, index) => {
-      widths[index] = Math.max(widths[index] ?? 0, cell.length);
-    });
-  }
-
-  return rows
-    .map((row) =>
-      row.map((cell, index) => (index === row.length - 1 ? cell : cell.padEnd(widths[index]))).join("  ")
-    )
-    .join("\n");
-}
-
-function tableStreamToTsv(stream) {
-  const columnIds = stream.columns?.length > 0 ? stream.columns.map((column) => column.id) : Object.keys(stream.rows?.[0] ?? {});
-  return [
-    columnIds.join("\t"),
-    ...(stream.rows ?? []).map((row) => columnIds.map((columnId) => row[columnId] ?? "").join("\t"))
-  ].join("\n");
-}
-
-function tableRowsToTsv(columns, rows) {
-  const columnIds = columns.map((column) => column.id);
-  return [
-    columnIds.join("\t"),
-    ...rows.map((row) => columnIds.map((columnId) => row[columnId] ?? "").join("\t"))
-  ].join("\n");
-}
-
-function escapeCsvCell(value) {
-  const text = String(value ?? "");
-  return /[",\r\n]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text;
-}
-
-function tableStreamToCsv(stream) {
-  const columns = getTableColumns(stream);
-  return tableRowsToCsv(columns, stream.rows ?? []);
-}
-
-function tableRowsToCsv(columns, rows) {
-  const columnIds = columns.map((column) => column.id);
-  return [
-    columnIds.map(escapeCsvCell).join(","),
-    ...rows.map((row) => columnIds.map((columnId) => escapeCsvCell(row[columnId])).join(","))
-  ].join("\n");
-}
-
-function resetOutputTableSort(scope) {
-  state.outputTable[scope].sortColumn = null;
-  state.outputTable[scope].sortDirection = "asc";
-  state.outputTable[scope].hiddenColumns = new Set();
-  state.outputTable[scope].columnPreset = "all";
-}
-
-function clearTableOutput(scope) {
-  const parts = getOutputViewParts(scope);
-  parts.table.hidden = true;
-  parts.table.textContent = "";
-  parts.table.dataset.active = "false";
-  parts.table.dataset.hasTable = "false";
-  parts.table._tableStream = null;
-  parts.textarea.hidden = false;
-  parts.textarea.style.visibility = "";
-  resetOutputTableSort(scope);
-}
-
-function clearToolTableOutput() {
-  clearTableOutput("tool");
+  outputShell.clearToolOutput();
 }
 
 function clearWorkflowTableOutput() {
-  clearTableOutput("workflow");
-}
-
-function isTableViewActive(scope) {
-  const table = getOutputViewParts(scope).table;
-  return table.dataset.active === "true" && !table.hidden;
+  outputShell.clearWorkflowTableOutput();
 }
 
 function setOutputFormatLabel(scope, label) {
-  const parts = getOutputViewParts(scope);
-  const selectedLabel = label || "Not run";
-  if (scope === "workflow") {
-    parts.tabs.hidden = !label;
-    parts.note.textContent = selectedLabel;
-  }
-}
-
-function appendHighlightedCellText(parent, text, query) {
-  const source = String(text ?? "");
-  if (!query) {
-    parent.textContent = source;
-    return false;
-  }
-  const lowerSource = source.toLowerCase();
-  const lowerQuery = query.toLowerCase();
-  const start = lowerSource.indexOf(lowerQuery);
-  if (start === -1) {
-    parent.textContent = source;
-    return false;
-  }
-  parent.append(document.createTextNode(source.slice(0, start)));
-  const mark = document.createElement("mark");
-  mark.textContent = source.slice(start, start + query.length);
-  parent.append(mark, document.createTextNode(source.slice(start + query.length)));
-  return true;
-}
-
-function compareTableValues(left, right, type) {
-  if (type === "number") {
-    const leftNumber = Number(left);
-    const rightNumber = Number(right);
-    if (Number.isFinite(leftNumber) && Number.isFinite(rightNumber)) {
-      return leftNumber - rightNumber;
-    }
-  }
-  return String(left ?? "").localeCompare(String(right ?? ""), undefined, {
-    numeric: true,
-    sensitivity: "base"
-  });
-}
-
-function getTableColumns(stream) {
-  const rows = stream?.rows ?? [];
-  return stream?.columns?.length > 0
-    ? stream.columns
-    : Object.keys(rows[0] ?? {}).map((id) => ({ id, label: id }));
-}
-
-function getVisibleTableColumns(scope, columns) {
-  const hiddenColumns = state.outputTable[scope].hiddenColumns;
-  const visibleColumns = columns.filter((column) => !hiddenColumns.has(column.id));
-  return visibleColumns.length > 0 ? visibleColumns : columns;
-}
-
-function getTableViewData(scope, stream) {
-  const rows = stream?.rows ?? [];
-  const columns = getTableColumns(stream);
-  const visibleColumns = getVisibleTableColumns(scope, columns);
-  const sortedRows = getSortedTableRows(scope, rows, visibleColumns);
-  const displayInfo = getTableDisplayInfo(sortedRows, visibleColumns);
-  return { rows, columns, visibleColumns, sortedRows, ...displayInfo };
-}
-
-function getTableDisplayInfo(sortedRows, visibleColumns) {
-  const cellCount = sortedRows.length * Math.max(1, visibleColumns.length);
-  const isPreview = sortedRows.length > TABLE_FULL_RENDER_ROW_LIMIT || cellCount > TABLE_FULL_RENDER_CELL_LIMIT;
-  if (!isPreview) {
-    return {
-      displayedRows: sortedRows,
-      isPreview,
-      displayLimit: sortedRows.length,
-      cellCount
-    };
-  }
-
-  const rowLimitFromCells = Math.max(1, Math.floor(TABLE_FULL_RENDER_CELL_LIMIT / Math.max(1, visibleColumns.length)));
-  const displayLimit = Math.min(TABLE_FULL_RENDER_ROW_LIMIT, rowLimitFromCells);
-  return {
-    displayedRows: sortedRows.slice(0, displayLimit),
-    isPreview,
-    displayLimit,
-    cellCount
-  };
-}
-
-function getSortedTableRows(scope, rows, columns) {
-  const sortColumn = state.outputTable[scope].sortColumn;
-  if (!sortColumn) {
-    return rows;
-  }
-  const column = columns.find((item) => item.id === sortColumn);
-  if (!column) {
-    return rows;
-  }
-  const direction = state.outputTable[scope].sortDirection === "desc" ? -1 : 1;
-  return [...rows].sort((left, right) => {
-    const comparison = compareTableValues(left[sortColumn], right[sortColumn], column.type);
-    return comparison * direction;
-  });
-}
-
-function getTableSortLabel(scope, column) {
-  if (state.outputTable[scope].sortColumn !== column.id) {
-    return "";
-  }
-  return state.outputTable[scope].sortDirection === "desc" ? " desc" : " asc";
-}
-
-function getColumnPresetDefinitions(columns) {
-  const ids = new Set(columns.map((column) => column.id));
-  const presets = [{ id: "all", label: "All columns", columnIds: columns.map((column) => column.id) }];
-  if (columns.length > 6) {
-    presets.push({
-      id: "summary",
-      label: "Summary",
-      columnIds: columns.slice(0, Math.min(6, columns.length)).map((column) => column.id)
-    });
-  }
-  const coordinateIds = columns
-    .filter((column) => /(^|_)(start|end|length|strand|frame|position|query|reference|ref)/i.test(column.id))
-    .map((column) => column.id);
-  if (coordinateIds.length > 0 && coordinateIds.length < columns.length) {
-    presets.push({ id: "coordinates", label: "Coordinates", columnIds: coordinateIds });
-  }
-  const referenceIds = columns
-    .filter((column) => /(motif|reference|source|database|class|name|id)/i.test(column.id))
-    .map((column) => column.id);
-  if (referenceIds.length > 0 && referenceIds.length < columns.length) {
-    presets.push({ id: "reference", label: "Reference", columnIds: referenceIds });
-  }
-  return presets.filter((preset, index, all) =>
-    preset.columnIds.length > 0 &&
-    preset.columnIds.every((id) => ids.has(id)) &&
-    all.findIndex((item) => item.id === preset.id) === index
-  );
-}
-
-function applyTableColumnPreset(scope, columns, preset) {
-  const tableState = state.outputTable[scope];
-  const presets = getColumnPresetDefinitions(columns);
-  const selected = presets.find((item) => item.id === preset) ?? presets[0];
-  const visibleIds = new Set(selected.columnIds);
-  tableState.columnPreset = selected.id;
-  tableState.hiddenColumns = new Set(columns.map((column) => column.id).filter((id) => !visibleIds.has(id)));
-}
-
-function getVisibleTableText(scope, stream) {
-  const { visibleColumns, displayedRows } = getTableViewData(scope, stream);
-  return getOutputViewParts(scope).textarea.dataset.mimeType === "text/csv"
-    ? tableRowsToCsv(visibleColumns, displayedRows)
-    : tableRowsToTsv(visibleColumns, displayedRows);
-}
-
-function getFullTableText(scope, stream) {
-  const { visibleColumns, sortedRows } = getTableViewData(scope, stream);
-  return getOutputViewParts(scope).textarea.dataset.mimeType === "text/csv"
-    ? tableRowsToCsv(visibleColumns, sortedRows)
-    : tableRowsToTsv(visibleColumns, sortedRows);
-}
-
-function downloadText(text, filename, mimeType = "text/plain") {
-  const blob = new Blob([text], { type: mimeType });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = filename;
-  document.body.append(link);
-  link.click();
-  link.remove();
-  URL.revokeObjectURL(url);
-}
-
-function getVisibleTableFilename(scope) {
-  const parts = getOutputViewParts(scope);
-  const filename = parts.textarea.dataset.filename ?? (scope === "workflow" ? "sms3-workflow-output.tsv" : "sms3-output.tsv");
-  const extension = parts.textarea.dataset.mimeType === "text/csv" ? "csv" : "tsv";
-  return filename.toLowerCase().match(/\.(csv|tsv)$/)
-    ? filename.replace(/\.(csv|tsv)$/i, `-visible.${extension}`)
-    : `${filename}-visible.${extension}`;
-}
-
-function getVisibleTableMimeType(scope) {
-  return getOutputViewParts(scope).textarea.dataset.mimeType === "text/csv"
-    ? "text/csv"
-    : "text/tab-separated-values";
-}
-
-function renderTableControls(scope, stream, columns, sortedRows, displayedRows, isPreview) {
-  const tableState = state.outputTable[scope];
-  const controls = document.createElement("div");
-  controls.className = "table-output-controls";
-
-  const actions = document.createElement("div");
-  actions.className = "table-output-actions";
-
-  const copyVisible = document.createElement("button");
-  copyVisible.type = "button";
-  copyVisible.textContent = isPreview ? "Copy displayed" : "Copy table";
-  copyVisible.title = "Copy the displayed table rows and columns";
-  copyVisible.disabled = displayedRows.length === 0;
-  copyVisible.addEventListener("click", async () => {
-    await navigator.clipboard.writeText(getVisibleTableText(scope, stream));
-  });
-  actions.append(copyVisible);
-
-  const downloadVisible = document.createElement("button");
-  downloadVisible.type = "button";
-  downloadVisible.textContent = isPreview ? "Download displayed" : "Download table";
-  downloadVisible.title = "Download the displayed table rows and columns";
-  downloadVisible.disabled = displayedRows.length === 0;
-  downloadVisible.addEventListener("click", () => {
-    downloadText(getVisibleTableText(scope, stream), getVisibleTableFilename(scope), getVisibleTableMimeType(scope));
-  });
-  actions.append(downloadVisible);
-
-  if (isPreview) {
-    const copyAll = document.createElement("button");
-    copyAll.type = "button";
-    copyAll.textContent = "Copy all";
-    copyAll.title = "Copy all sorted rows and visible columns";
-    copyAll.disabled = sortedRows.length === 0;
-    copyAll.addEventListener("click", async () => {
-      await navigator.clipboard.writeText(getFullTableText(scope, stream));
-    });
-    actions.append(copyAll);
-
-    const downloadAll = document.createElement("button");
-    downloadAll.type = "button";
-    downloadAll.textContent = "Download all";
-    downloadAll.title = "Download all sorted rows and visible columns";
-    downloadAll.disabled = sortedRows.length === 0;
-    downloadAll.addEventListener("click", () => {
-      downloadText(
-        getFullTableText(scope, stream),
-        getVisibleTableFilename(scope).replace("-visible.", "-all."),
-        getVisibleTableMimeType(scope)
-      );
-    });
-    actions.append(downloadAll);
-  }
-
-  controls.append(actions);
-
-  const options = document.createElement("div");
-  options.className = "table-output-options";
-
-  const columnDetails = document.createElement("details");
-  columnDetails.className = "table-column-chooser";
-  const columnSummary = document.createElement("summary");
-  const hiddenCount = tableState.hiddenColumns.size;
-  columnSummary.textContent = hiddenCount > 0
-    ? `${columns.length - hiddenCount} of ${columns.length} columns`
-    : `All ${columns.length} columns`;
-  columnDetails.append(columnSummary);
-
-  const columnPanel = document.createElement("div");
-  columnPanel.className = "table-column-panel";
-
-  const presets = getColumnPresetDefinitions(columns);
-  if (presets.length > 1) {
-    const presetLabel = document.createElement("label");
-    presetLabel.textContent = "Column set";
-    const presetSelect = document.createElement("select");
-    presetSelect.className = "table-column-preset";
-    for (const preset of presets) {
-      const option = document.createElement("option");
-      option.value = preset.id;
-      option.textContent = preset.label;
-      presetSelect.append(option);
-    }
-    presetSelect.value = presets.some((preset) => preset.id === tableState.columnPreset)
-      ? tableState.columnPreset
-      : "all";
-    presetSelect.addEventListener("change", () => {
-      applyTableColumnPreset(scope, columns, presetSelect.value);
-      renderTableOutputSearch(scope);
-    });
-    presetLabel.append(presetSelect);
-    columnPanel.append(presetLabel);
-  }
-
-  const columnGrid = document.createElement("div");
-  columnGrid.className = "table-column-grid";
-  for (const column of columns) {
-    const columnLabel = document.createElement("label");
-    const checkbox = document.createElement("input");
-    checkbox.type = "checkbox";
-    checkbox.checked = !tableState.hiddenColumns.has(column.id);
-    checkbox.addEventListener("change", () => {
-      if (checkbox.checked) {
-        tableState.hiddenColumns.delete(column.id);
-      } else if (columns.length - tableState.hiddenColumns.size > 1) {
-        tableState.hiddenColumns.add(column.id);
-      }
-      tableState.columnPreset = "custom";
-      renderTableOutputSearch(scope);
-    });
-    columnLabel.append(checkbox, document.createTextNode(column.label ?? column.id));
-    columnGrid.append(columnLabel);
-  }
-  columnPanel.append(columnGrid);
-  columnDetails.append(columnPanel);
-  options.append(columnDetails);
-  controls.append(options);
-
-  return controls;
-}
-
-function renderTableStream(scope, stream, query = "") {
-  const parts = getOutputViewParts(scope);
-  parts.table.textContent = "";
-  const { rows, columns, visibleColumns, sortedRows, displayedRows, isPreview, cellCount } = getTableViewData(scope, stream);
-  const heading = document.createElement("h4");
-  heading.className = "table-output-heading";
-  heading.textContent = "Table";
-  const summary = document.createElement("div");
-  summary.className = "table-output-summary";
-  const sortColumn = visibleColumns.find((column) => column.id === state.outputTable[scope].sortColumn);
-  summary.textContent = `${isPreview ? `${displayedRows.length} displayed from ` : ""}${sortedRows.length} of ${pluralize(rows.length, "row")}, ${visibleColumns.length} of ${pluralize(columns.length, "column")}${
-    sortColumn ? `; sorted by ${sortColumn.label ?? sortColumn.id} ${state.outputTable[scope].sortDirection}` : ""
-  }`;
-  parts.table.append(heading, summary);
-  if (isPreview) {
-    const warning = document.createElement("div");
-    warning.className = "table-output-warning";
-    warning.textContent = `Large table preview: rendering ${pluralize(displayedRows.length, "row")} from ${pluralize(sortedRows.length, "row")} (${cellCount.toLocaleString()} cells). Use Copy all or Download all for the full visible-column data.`;
-    parts.table.append(warning);
-  }
-  parts.table.append(renderTableControls(scope, stream, columns, sortedRows, displayedRows, isPreview));
-  const table = document.createElement("table");
-  table.className = "result-table";
-  table.style.setProperty("--visible-table-columns", Math.max(1, visibleColumns.length));
-  const thead = document.createElement("thead");
-  const headerRow = document.createElement("tr");
-  for (const column of visibleColumns) {
-    const th = document.createElement("th");
-    th.scope = "col";
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = "table-sort-button";
-    button.textContent = `${column.label ?? column.id}${getTableSortLabel(scope, column)}`;
-    button.addEventListener("click", () => {
-      if (state.outputTable[scope].sortColumn === column.id) {
-        state.outputTable[scope].sortDirection = state.outputTable[scope].sortDirection === "asc" ? "desc" : "asc";
-      } else {
-        state.outputTable[scope].sortColumn = column.id;
-        state.outputTable[scope].sortDirection = column.type === "number" ? "desc" : "asc";
-      }
-      renderTableOutputSearch(scope);
-    });
-    th.append(button);
-    headerRow.append(th);
-  }
-  thead.append(headerRow);
-  table.append(thead);
-
-  const tbody = document.createElement("tbody");
-  for (const row of displayedRows) {
-    const tr = document.createElement("tr");
-    for (const column of visibleColumns) {
-      const td = document.createElement("td");
-      const matched = appendHighlightedCellText(td, row[column.id] ?? "", query);
-      if (matched) {
-        td.classList.add("output-table-match");
-      }
-      tr.append(td);
-    }
-    tbody.append(tr);
-  }
-  table.append(tbody);
-  parts.table.append(table);
-}
-
-function renderTableOutputSearch(scope) {
-  const search = state.outputSearch[scope];
-  const parts = getOutputSearchParts(scope);
-  const query = parts.input.value;
-  const tableStream = parts.table._tableStream;
-  if (!tableStream) {
-    renderOutputSearch(scope);
-    return;
-  }
-  renderTableStream(scope, tableStream, query);
-  const matches = [...parts.table.querySelectorAll(".output-table-match")];
-  search.matches = matches;
-  search.currentIndex = query && matches.length > 0 ? 0 : -1;
-  const summary = parts.table.querySelector(".table-output-summary");
-  if (summary && query) {
-    summary.textContent += `; ${pluralize(matches.length, "matching cell")}`;
-  }
-  parts.count.textContent = !query
-    ? "No search"
-    : matches.length > 0
-      ? `1 of ${matches.length}`
-      : "No matches";
-  parts.previous.disabled = matches.length < 2;
-  parts.next.disabled = matches.length < 2;
-  selectTableOutputMatch(scope);
-}
-
-function scrollElementInsideContainer(element, container) {
-  const elementRect = element.getBoundingClientRect();
-  const containerRect = container.getBoundingClientRect();
-  container.scrollTop += elementRect.top - containerRect.top - container.clientHeight / 2 + elementRect.height / 2;
-  container.scrollLeft += elementRect.left - containerRect.left - container.clientWidth / 2 + elementRect.width / 2;
-}
-
-function selectTableOutputMatch(scope) {
-  const search = state.outputSearch[scope];
-  const matches = search.matches ?? [];
-  for (const cell of matches) {
-    cell.classList.remove("current-output-table-match");
-  }
-  if (search.currentIndex < 0 || matches.length === 0) {
-    return;
-  }
-  const cell = matches[search.currentIndex];
-  cell.classList.add("current-output-table-match");
-  scrollElementInsideContainer(cell, getOutputViewParts(scope).table);
-}
-
-function renderTableOutputForScope(scope, tableStream, preferTable = false) {
-  const parts = getOutputViewParts(scope);
-  const hasTable = Boolean(tableStream?.columns?.length && Array.isArray(tableStream.rows));
-  parts.table._tableStream = hasTable ? tableStream : null;
-  parts.table.dataset.hasTable = String(hasTable);
-  parts.textarea.dataset.tableTsv = hasTable ? tableStreamToTsv(tableStream) : "";
-  parts.textarea.dataset.visualOutput = "false";
-  resetOutputTableSort(scope);
-
-  if (!hasTable) {
-    clearTableOutput(scope);
-    return;
-  }
-
-  renderTableStream(scope, tableStream);
-  parts.table.hidden = false;
-  parts.table.dataset.active = preferTable ? "true" : "false";
-  parts.textarea.hidden = preferTable;
-  parts.preview.hidden = true;
-  parts.textarea.style.visibility = "";
-  renderOutputSearch(scope);
+  outputShell.setOutputFormatLabel(scope, label);
 }
 
 function renderWorkflowTableOutput(tableStream, preferTable = false) {
-  renderTableOutputForScope("workflow", tableStream, preferTable);
+  outputShell.renderWorkflowTableOutput(tableStream, preferTable);
 }
 
-function getVisualOutputElement(scope) {
-  return scope === "workflow" ? elements.workflowVisualOutput : elements.visualOutput;
-}
-
-function renderVisualOutput(scope, svg) {
-  const visualOutput = getVisualOutputElement(scope);
-  if (!svg) {
-    visualOutput.hidden = true;
-    visualOutput.textContent = "";
-    return;
-  }
-  visualOutput.hidden = false;
-  visualOutput.textContent = "";
-  const heading = document.createElement("h4");
-  heading.className = "visual-output-heading";
-  heading.textContent = "Preview";
-  visualOutput.append(heading);
-  visualOutput.insertAdjacentHTML("beforeend", svg);
-}
-
-function applyToolOutputChoice(choice) {
-  elements.toolOutput.dataset.rawOutput = choice.text;
-  elements.toolOutput.value = choice.tableStream
-    ? ""
-    : getBaseMimeType(choice.download.mimeType) === "text/tab-separated-values"
-      ? alignTsv(choice.text)
-      : choice.text;
-  elements.toolOutput.dataset.filename = choice.download.filename ?? "sms3-output.txt";
-  elements.toolOutput.dataset.mimeType = choice.download.mimeType ?? "text/plain";
-  setOutputFormatLabel("tool", choice.label);
-  renderTableOutputForScope("tool", choice.tableStream, Boolean(choice.tableStream));
-  renderVisualOutput("tool", choice.svg);
-  elements.toolOutput.dataset.visualOutput = choice.svg ? "true" : "false";
-  elements.toolOutput.hidden = Boolean(choice.tableStream || choice.svg);
-  updateOutputActions("tool", {
-    hidden: Boolean(choice.tableStream),
-    mimeType: choice.download.mimeType,
-    label: choice.label
-  });
-  renderOutputSearch("tool");
+function renderVisualOutput(scope, svg, options = {}) {
+  return outputShell.renderVisualOutput(scope, svg, options);
 }
 
 function renderGeneratedToolOutputChoice(result) {
-  const selectedFormat = getSelectedToolOutputFormat(state.selectedTool) ?? "primary";
-  const download = result.download ?? { filename: "sms3-output.txt", mimeType: "text/plain" };
-  const isDelimitedOutput = isDelimitedDownload(selectedFormat, download);
-  const svg = result.visual?.svg ?? (download.mimeType?.includes("svg") ? result.output : null);
-  const choice = {
-    format: selectedFormat,
-    label: getCurrentToolOutputFormatLabel(result),
-    text: result.output,
-    download,
-    tableStream: isDelimitedOutput ? getDelimitedTableStream(result, selectedFormat) : null,
-    svg
-  };
-  state.currentToolOutputChoices = [choice];
-  elements.outputFormatSelect.textContent = "";
-  elements.outputFormatSelect.closest("label").hidden = true;
-  elements.outputViewTabs.hidden = false;
-  applyToolOutputChoice(choice);
+  outputShell.renderGeneratedToolOutputChoice(result);
 }
 
-function sequenceRecordsToFasta(stream) {
-  return (stream.records ?? [])
-    .map((record) => `>${record.title ?? "sequence"}\n${record.sequence ?? ""}`)
-    .join("\n");
+function clearToolInputOutput(...args) {
+  return toolInputShell.clearToolInputOutput(...args);
+}
+
+function formatExampleInputForDisplay(...args) {
+  return toolInputShell.formatExampleInputForDisplay(...args);
+}
+
+function loadSelectedToolExample(...args) {
+  return toolInputShell.loadSelectedToolExample(...args);
+}
+
+function updateInputActionButtons(...args) {
+  return toolInputShell.updateInputActionButtons(...args);
 }
 
 function pluralize(count, singular, plural = `${singular}s`) {
-  return `${count} ${count === 1 ? singular : plural}`;
+  return `${count.toLocaleString()} ${count === 1 ? singular : plural}`;
 }
 
-function formatWorkflowValue(value) {
-  if (!value) {
-    return { text: "", rawText: "", summary: "No output", isTsv: false };
-  }
-
-  if (value.kind === "table") {
-    const rawText = tableStreamToTsv(value);
-    return {
-      text: "",
-      rawText,
-      summary: `Workflow output: table rows (${pluralize(value.rows?.length ?? 0, "row")})`,
-      outputLabel: "TSV table",
-      isTsv: true,
-      tableStream: value,
-      filename: "sms3-workflow-output.tsv",
-      mimeType: "text/tab-separated-values"
-    };
-  }
-
-  if (value.kind === "sequence-records") {
-    const rawText = sequenceRecordsToFasta(value);
-    return {
-      text: rawText,
-      rawText,
-      summary: `Workflow output: ${value.alphabet === "protein" ? "protein" : "DNA/RNA"} sequences (${pluralize(value.records?.length ?? 0, "record")})`,
-      outputLabel: "FASTA sequences",
-      isTsv: false,
-      filename: "sms3-workflow-output.fasta",
-      mimeType: "text/x-fasta;charset=utf-8"
-    };
-  }
-
-  if (value.kind === "text") {
-    return {
-      text: value.text ?? "",
-      rawText: value.text ?? "",
-      summary: value.mediaType?.includes("svg") ? "Workflow output: graphic" : "Workflow output: text",
-      outputLabel: value.mediaType?.includes("svg") ? "SVG" : "Text",
-      isTsv: false,
-      svg: value.mediaType?.includes("svg") ? value.text ?? "" : null,
-      filename: value.mediaType?.includes("svg") ? "sms3-workflow-output.svg" : "sms3-workflow-output.txt",
-      mimeType: value.mediaType ?? "text/plain;charset=utf-8"
-    };
-  }
-
-  if (value.kind === "collection") {
-    const rawText = JSON.stringify(value, null, 2);
-    return {
-      text: rawText,
-      rawText,
-      summary: `Workflow output: set (${pluralize(value.items?.length ?? 0, "item")})`,
-      outputLabel: "JSON",
-      isTsv: false,
-      filename: "sms3-workflow-output.json",
-      mimeType: "application/json"
-    };
-  }
-
-  const rawText = JSON.stringify(value, null, 2);
-  return {
-    text: rawText,
-    rawText,
-    summary: `Workflow output: ${describeStream(value)}`,
-    outputLabel: "JSON",
-    isTsv: false,
-    filename: "sms3-workflow-output.json",
-    mimeType: "application/json"
-  };
+function formatWorkflowValue(...args) {
+  return workflowBuilder.formatWorkflowValue(...args);
 }
 
-function getSelectedWorkflowPreset() {
-  return workflowPresets.find((preset) => preset.id === state.selectedWorkflow) ?? workflowPresets[0];
+function getSelectedWorkflowPreset(...args) {
+  return workflowBuilder.getSelectedWorkflowPreset(...args);
 }
 
-function cloneWorkflow(workflow) {
-  return JSON.parse(JSON.stringify(workflow));
+function cloneWorkflow(...args) {
+  return workflowBuilder.cloneWorkflow(...args);
 }
 
-function getActiveWorkflowDefinition() {
-  return state.importedWorkflow ?? getSelectedWorkflowPreset().workflow;
+function getActiveWorkflowDefinition(...args) {
+  return workflowBuilder.getActiveWorkflowDefinition(...args);
 }
 
-function setWorkflowDefinition(workflow) {
-  state.importedWorkflow = workflow;
-  elements.workflowJson.value = JSON.stringify(workflow, null, 2);
+function setWorkflowDefinition(...args) {
+  return workflowBuilder.setWorkflowDefinition(...args);
 }
 
-function getSelectedWorkflowStep(workflow) {
-  const steps = workflow.steps ?? [];
-  if (steps.length === 0) {
-    state.selectedWorkflowStepId = null;
-    return undefined;
-  }
-
-  let step = steps.find((item) => item.id === state.selectedWorkflowStepId);
-  if (!step) {
-    step =
-      [...steps].reverse().find((item) => item.type !== "input") ??
-      steps[0];
-    state.selectedWorkflowStepId = step.id;
-  }
-  return step;
+function getDefaultWorkflowSaveName(...args) {
+  return workflowBuilder.getDefaultWorkflowSaveName(...args);
 }
 
-function workflowUsesInput(workflow) {
-  return (workflow?.steps ?? []).some((step) => step.type === "input");
+function setWorkflowSavedStatus(...args) {
+  return workflowBuilder.setWorkflowSavedStatus(...args);
 }
 
-function pruneExpandedWorkflowSteps(workflow) {
-  const stepIds = new Set((workflow.steps ?? []).map((step) => step.id));
-  for (const stepId of [...state.expandedWorkflowStepIds]) {
-    if (!stepIds.has(stepId)) {
-      state.expandedWorkflowStepIds.delete(stepId);
-    }
-  }
+function renderSavedWorkflowControls(...args) {
+  return workflowBuilder.renderSavedWorkflowControls(...args);
 }
 
-function makeRunnableWorkflow(workflowDefinition = getActiveWorkflowDefinition()) {
-  const workflow = cloneWorkflow(workflowDefinition);
-  const inputStep = workflow.steps.find((step) => step.type === "input");
-  if (inputStep) {
-    inputStep.text = elements.workflowInput.value;
-  }
-  return workflow;
+function updateSavedWorkflowActionButtons(...args) {
+  return workflowBuilder.updateSavedWorkflowActionButtons(...args);
 }
 
-function getToolById(toolId) {
-  return tools.find((tool) => tool.metadata.id === toolId);
+function getWorkflowDefinitionForStorage(...args) {
+  return workflowBuilder.getWorkflowDefinitionForStorage(...args);
 }
 
-function makeDefaultOptions(tool) {
-  const options = {};
-  for (const option of flattenOptions(tool?.metadata.options ?? [])) {
-    if (
-      option.type === "radio" ||
-      option.type === "select" ||
-      option.type === "checkbox" ||
-      option.type === "number" ||
-      option.type === "text"
-    ) {
-      options[option.id] = option.defaultValue;
-    }
-  }
-  return options;
+function workflowUsesInput(...args) {
+  return workflowBuilder.workflowUsesInput(...args);
 }
 
-function makeStepId(workflow, baseId) {
-  const existing = new Set((workflow.steps ?? []).map((step) => step.id));
-  let candidate = baseId;
-  let index = 2;
-  while (existing.has(candidate)) {
-    candidate = `${baseId}-${index}`;
-    index += 1;
-  }
-  return candidate;
+function makeRunnableWorkflow(...args) {
+  return workflowBuilder.makeRunnableWorkflow(...args);
 }
 
-function getEditableWorkflow() {
-  const workflow = workflowFromJsonOrActive();
-  workflow.steps = Array.isArray(workflow.steps) ? workflow.steps : [];
-  return workflow;
+function getToolById(...args) {
+  return workflowBuilder.getToolById(...args);
 }
 
-function workflowFromJsonOrActive() {
-  if (elements.workflowJson.value.trim()) {
-    const parsed = parseWorkflowJson();
-    if (parsed.errors.length === 0) {
-      return parsed.workflow;
-    }
-  }
-  return cloneWorkflow(getActiveWorkflowDefinition());
+function getWorkflowStepDisplayName(...args) {
+  return workflowBuilder.getWorkflowStepDisplayName(...args);
 }
 
-function getWorkflowLastOutput(workflow) {
-  let lastOutput;
-  let lastTool;
-
-  for (const step of workflow.steps ?? []) {
-    if (step.type === "input") {
-      lastOutput = { id: "primary", kind: "text", mediaType: step.mediaType ?? "text/plain" };
-      continue;
-    }
-
-    if (step.type === "tool") {
-      lastTool = getToolById(step.toolId);
-      lastOutput = lastTool?.metadata.workflow?.outputs?.find((output) => output.id === (step.selectStream ?? "primary"));
-      continue;
-    }
-
-    if (step.type === "select-stream") {
-      const output = lastTool?.metadata.workflow?.outputs?.find((item) => item.id === step.stream);
-      if (output) {
-        lastOutput = output;
-      }
-      continue;
-    }
-
-    if (step.type === "split") {
-      lastOutput = { kind: "collection", itemKind: "sequence-records", itemDescription: "sequence records" };
-      continue;
-    }
-
-    if (step.type === "map") {
-      const tool = getToolById(step.toolId);
-      const stream = step.selectStream ?? "primary";
-      const output = tool?.metadata.workflow?.outputs?.find((item) => item.id === stream);
-      lastOutput = {
-        kind: "collection",
-        itemKind: output?.kind ?? stream,
-        itemDescription: makeWorkflowCollectionDescription(output, stream)
-      };
-      lastTool = tool;
-      continue;
-    }
-
-    if (step.type === "gather") {
-      lastOutput =
-        step.as === "table"
-          ? { kind: "table" }
-          : step.as === "text"
-            ? { kind: "text" }
-            : { kind: "sequence-records" };
-    }
-  }
-
-  return lastOutput;
+function getWorkflowStepKindLabel(...args) {
+  return workflowBuilder.getWorkflowStepKindLabel(...args);
 }
 
-function getWorkflowOutputAtIndex(workflow, targetIndex) {
-  let lastOutput;
-  let lastTool;
-
-  for (const [index, step] of (workflow.steps ?? []).entries()) {
-    if (step.type === "input") {
-      lastOutput = { id: "primary", kind: "text", mediaType: step.mediaType ?? "text/plain" };
-      lastTool = undefined;
-    } else if (step.type === "tool") {
-      lastTool = getToolById(step.toolId);
-      lastOutput = lastTool?.metadata.workflow?.outputs?.find((output) => output.id === (step.selectStream ?? "primary"));
-    } else if (step.type === "select-stream") {
-      const output = lastTool?.metadata.workflow?.outputs?.find((item) => item.id === step.stream);
-      if (output) {
-        lastOutput = output;
-      }
-    } else if (step.type === "split") {
-      lastOutput = { kind: "collection", itemKind: "sequence-records", itemDescription: "sequence records" };
-    } else if (step.type === "map") {
-      const tool = getToolById(step.toolId);
-      const stream = step.selectStream ?? "primary";
-      const output = tool?.metadata.workflow?.outputs?.find((item) => item.id === stream);
-      lastOutput = {
-        kind: "collection",
-        itemKind: output?.kind ?? stream,
-        itemDescription: makeWorkflowCollectionDescription(output, stream)
-      };
-      lastTool = tool;
-    } else if (step.type === "gather") {
-      lastOutput =
-        step.as === "table"
-          ? { kind: "table" }
-          : step.as === "text"
-            ? { kind: "text" }
-            : { kind: "sequence-records" };
-    }
-
-    if (index === targetIndex) {
-      return lastOutput;
-    }
-  }
-
-  return lastOutput;
+function describeWorkflowStep(...args) {
+  return workflowBuilder.describeWorkflowStep(...args);
 }
 
-function getSelectedWorkflowStepIndex(workflow) {
-  return (workflow.steps ?? []).findIndex((step) => step.id === state.selectedWorkflowStepId);
+function renderWorkflowView(...args) {
+  return workflowBuilder.renderWorkflowView(...args);
 }
 
-function getWorkflowInsertionIndex(workflow) {
-  return (workflow.steps ?? []).length;
+function renderWorkflowBuilderControls(...args) {
+  return workflowBuilder.renderWorkflowBuilderControls(...args);
 }
 
-function isWorkflowSourceStep(step) {
-  if (!step) {
-    return false;
-  }
-  if (step.type === "input") {
-    return true;
-  }
-  if (step.type !== "tool" || step.input) {
-    return false;
-  }
-  return getToolById(step.toolId)?.metadata.inputRequired === false;
+async function refreshSavedWorkflowList(...args) {
+  return workflowBuilder.refreshSavedWorkflowList(...args);
 }
 
-function isOnlyWorkflowSourceStep(workflow, step) {
-  return isWorkflowSourceStep(step) &&
-    (workflow.steps ?? []).filter((item) => isWorkflowSourceStep(item)).length === 1;
+async function saveCurrentWorkflowToLibrary(...args) {
+  return workflowBuilder.saveCurrentWorkflowToLibrary(...args);
 }
 
-function getWorkflowOutputAtInsertionPoint(workflow) {
-  const insertionIndex = getWorkflowInsertionIndex(workflow);
-  return insertionIndex > 0 ? getWorkflowOutputAtIndex(workflow, insertionIndex - 1) : undefined;
+async function loadSavedWorkflowFromLibrary(...args) {
+  return workflowBuilder.loadSavedWorkflowFromLibrary(...args);
 }
 
-function describeStream(stream) {
-  if (!stream) {
-    return "unknown result";
-  }
-  if (stream.kind === "sequence-records") {
-    if (stream.id === "cdsSequenceRecords") {
-      return "CDS DNA/RNA sequences";
-    }
-    if (stream.id === "wholeSequenceRecords") {
-      return "Whole DNA/RNA sequences";
-    }
-    return stream.alphabet === "protein" ? "protein sequences" : "DNA/RNA sequences";
-  }
-  if (stream.kind === "collection") {
-    const itemDescription =
-      stream.itemDescription ??
-      (stream.itemKind === "sequence-records" ? "sequence records" : stream.itemKind);
-    return itemDescription ? `set of ${itemDescription}` : "set";
-  }
-  if (stream.kind === "table") {
-    return "table rows";
-  }
-  if (stream.kind === "orf-records") {
-    return "ORFs";
-  }
-  if (stream.kind === "stats-records") {
-    return "statistics records";
-  }
-  if (stream.kind === "text-records") {
-    return "text records";
-  }
-  if (stream.kind === "warnings") {
-    return "warnings";
-  }
-  if (stream.kind === "text") {
-    if (stream.mediaType?.includes("fasta")) {
-      return "FASTA records";
-    }
-    if (stream.mediaType?.includes("svg")) {
-      return "plot or image";
-    }
-    if (stream.mediaType?.includes("tab-separated-values")) {
-      return "TSV table";
-    }
-    return "Text output";
-  }
-  return stream.kind;
-}
-
-function getWorkflowSchemaLabel(schema) {
-  const labels = {
-    "base-composition-plot": "Composition table",
-    "codon-usage-comparison": "Codon comparison table",
-    "codon-usage": "Codon count table",
-    "dna-rna-pattern-finder": "Match table",
-    "dna-rna-motif-scanner": "Motif match table",
-    "extract-subsequences": "Extracted-region table",
-    "generic-table": "Table rows",
-    "orf-finder": "ORF table",
-    "protein-hydropathy": "Hydropathy table",
-    "protein-motif-scanner": "Motif match table",
-    "protein-pattern-finder": "Match table",
-    "protein-stats": "Protein statistics table",
-    "restriction-fragments": "Digest fragments",
-    "restriction-map": "Map features",
-    "restriction-sites": "Restriction site table",
-    "reverse-translate": "Codon choice table",
-    "sequence-stats-dna-rna": "Sequence statistics table",
-    "technical-sequence-scanner": "Technical sequence match table",
-    "vector-contamination-scanner": "Vector contamination match table",
-    "translate-dna-rna": "Translation table"
-  };
-  return labels[schema];
-}
-
-function describeWorkflowStreamChoice(stream) {
-  if (!stream) {
-    return "Unknown result";
-  }
-  if (stream.label) {
-    return stream.label;
-  }
-  if (stream.id === "primary") {
-    return stream.mediaType?.includes("fasta") ? "FASTA records" : "Displayed output";
-  }
-  if (stream.id === "sequenceRecords") {
-    return stream.alphabet === "protein" ? "Protein sequences" : "DNA/RNA sequences";
-  }
-  if (stream.id === "cleanedText") {
-    return "Cleaned text";
-  }
-  if (stream.id === "proteinRecords") {
-    return "Protein sequences";
-  }
-  if (stream.id === "wholeSequenceRecords") {
-    return "Whole DNA/RNA sequences";
-  }
-  if (stream.id === "cdsSequenceRecords") {
-    return "CDS DNA/RNA sequences";
-  }
-  if (stream.id === "dnaRecords") {
-    return "DNA/RNA sequences";
-  }
-  if (stream.id === "orfRecords") {
-    return "ORFs";
-  }
-  if (stream.id === "matchedRegions") {
-    return "Matched sequence regions";
-  }
-  if (stream.id === "nucleotideFasta") {
-    return "ORF nucleotide FASTA";
-  }
-  if (stream.id === "proteinFasta") {
-    return "ORF protein FASTA";
-  }
-  if (stream.id === "fasta") {
-    return "FASTA records";
-  }
-  if (stream.id === "report") {
-    return "Summary report";
-  }
-  if (stream.id === "tsv") {
-    return "TSV table";
-  }
-  if (stream.id === "groupedText") {
-    return "Grouped sequence text";
-  }
-  if (stream.id === "translations") {
-    return "Translation table";
-  }
-  if (stream.id === "fragments") {
-    return "Digest fragments";
-  }
-  if (stream.id === "mapTable") {
-    return "Map features";
-  }
-  if (stream.id === "plot") {
-    return "Plot";
-  }
-  if (stream.id === "overview") {
-    return "Overview graphic";
-  }
-  if (stream.id === "table") {
-    return getWorkflowSchemaLabel(stream.schema) ?? "Table rows";
-  }
-  if (stream.id === "statsRecords") {
-    return "Statistics records";
-  }
-  if (stream.id === "textRecords") {
-    return "Text records";
-  }
-  if (stream.id === "warnings") {
-    return "Warnings";
-  }
-  return describeStream(stream);
-}
-
-function isAdvancedWorkflowOutput(stream, outputs = []) {
-  if (!stream) {
-    return true;
-  }
-  if (stream.hidden || stream.advanced || stream.kind === "warnings" || stream.kind === "stats-records" || stream.kind === "text-records") {
-    return true;
-  }
-  return stream.id === "primary" && outputs.some((output) => output.id !== "primary" && output.kind !== "warnings");
-}
-
-function getUserSelectableWorkflowOutputs(tool) {
-  const outputs = tool?.metadata.workflow?.outputs ?? [];
-  const visible = outputs.filter((stream) => !isAdvancedWorkflowOutput(stream, outputs));
-  return visible.length > 0 ? visible : outputs.filter((stream) => stream.kind !== "warnings");
-}
-
-function getWorkflowOutputPriority(stream) {
-  const priorityById = {
-    orfRecords: 1,
-    proteinRecords: 2,
-    sequenceRecords: 3,
-    table: 4,
-    translations: 4,
-    matchedRegions: 5,
-    fasta: 6,
-    nucleotideFasta: 6,
-    proteinFasta: 6,
-    report: 7,
-    groupedText: 8,
-    tsv: 9,
-    plot: 10,
-    overview: 10,
-    primary: 20
-  };
-  return priorityById[stream?.id] ?? 15;
-}
-
-function getRecommendedWorkflowOutputId(tool) {
-  const outputs = getUserSelectableWorkflowOutputs(tool);
-  return [...outputs].sort((left, right) => getWorkflowOutputPriority(left) - getWorkflowOutputPriority(right))[0]?.id ?? "primary";
-}
-
-function getWorkflowFieldChoicesForStream(stream) {
-  if (!stream) {
-    return [];
-  }
-
-  if (stream.kind === "table" && Array.isArray(stream.columns) && stream.columns.length > 0) {
-    return stream.columns.map((column) => ({
-      value: column.id,
-      label: `${column.label ?? column.id} (${column.id})`
-    }));
-  }
-
-  if (stream.kind === "sequence-records" || (stream.kind === "collection" && stream.itemKind === "sequence-records")) {
-    return [
-      { value: "title", label: "Title (title)" },
-      { value: "length", label: "Length (length)" },
-      { value: "sequence", label: "Sequence (sequence)" }
-    ];
-  }
-
-  return [];
-}
-
-function getWorkflowFieldChoicesAtInsertionPoint(workflow) {
-  return getWorkflowFieldChoicesForStream(getWorkflowOutputAtInsertionPoint(workflow));
-}
-
-function getWorkflowFieldChoicesBeforeStep(workflow, step) {
-  const stepIndex = (workflow.steps ?? []).findIndex((item) => item.id === step.id);
-  return getWorkflowFieldChoicesForStream(stepIndex > 0 ? getWorkflowOutputAtIndex(workflow, stepIndex - 1) : undefined);
-}
-
-function replaceWorkflowFieldControl(row, elementKey, choices, fallback) {
-  const existing = elements[elementKey];
-  const previousValue = existing?.value ?? fallback;
-  const control = choices.length > 0 ? document.createElement("select") : document.createElement("input");
-  control.id = existing?.id ?? elementKey;
-
-  if (choices.length > 0) {
-    control.className = "workflow-field-select";
-    for (const choice of choices) {
-      const option = document.createElement("option");
-      option.value = choice.value;
-      option.textContent = choice.label;
-      control.append(option);
-    }
-    control.value = choices.some((choice) => choice.value === previousValue)
-      ? previousValue
-      : choices.some((choice) => choice.value === fallback)
-        ? fallback
-        : choices[0].value;
-    row.className = "select-row";
-  } else {
-    control.type = "text";
-    control.value = previousValue || fallback;
-    row.className = "number-row";
-  }
-
-  existing?.replaceWith(control);
-  elements[elementKey] = control;
-}
-
-function getWorkflowStepFlow(workflow, targetIndex) {
-  let lastOutput;
-  let lastTool;
-  const stepOutputs = new Map();
-  const stepTools = new Map();
-
-  function getBoundInput(step) {
-    if (!step.input) {
-      return lastOutput;
-    }
-
-    const sourceOutput = stepOutputs.get(step.input.from);
-    const streamName = step.input.stream ?? "primary";
-    if (streamName === "primary") {
-      return sourceOutput;
-    }
-
-    const sourceTool = stepTools.get(step.input.from);
-    return sourceTool?.metadata.workflow?.outputs?.find((item) => item.id === streamName) ?? sourceOutput;
-  }
-
-  for (const [index, step] of (workflow.steps ?? []).entries()) {
-    const input = getBoundInput(step);
-    let output = lastOutput;
-
-    if (step.type === "input") {
-      output = { id: "primary", kind: "text", mediaType: step.mediaType ?? "text/plain" };
-      lastTool = undefined;
-      stepOutputs.set(step.id, output);
-      stepTools.delete(step.id);
-    } else if (step.type === "tool") {
-      const tool = getToolById(step.toolId);
-      output = tool?.metadata.workflow?.outputs?.find((item) => item.id === (step.selectStream ?? "primary"));
-      lastTool = tool;
-      stepOutputs.set(step.id, output);
-      stepTools.set(step.id, tool);
-    } else if (step.type === "select-stream") {
-      const selected = lastTool?.metadata.workflow?.outputs?.find((item) => item.id === step.stream);
-      output = selected ?? output;
-      stepOutputs.set(step.id, output);
-      stepTools.delete(step.id);
-    } else if (step.type === "split") {
-      output = { kind: "collection", itemKind: "sequence-records", itemDescription: "sequence records" };
-      stepOutputs.set(step.id, output);
-      stepTools.delete(step.id);
-    } else if (step.type === "map") {
-      const tool = getToolById(step.toolId);
-      const stream = step.selectStream ?? "primary";
-      const selected = tool?.metadata.workflow?.outputs?.find((item) => item.id === stream);
-      output = {
-        kind: "collection",
-        itemKind: selected?.kind ?? stream,
-        itemDescription: selected ? describeStream(selected) : stream
-      };
-      lastTool = tool;
-      stepOutputs.set(step.id, output);
-      stepTools.set(step.id, tool);
-    } else if (step.type === "gather") {
-      output =
-        step.as === "table"
-          ? { kind: "table" }
-          : step.as === "text"
-            ? { kind: "text" }
-            : { kind: "sequence-records" };
-      stepOutputs.set(step.id, output);
-      stepTools.delete(step.id);
-    } else {
-      stepOutputs.set(step.id, output);
-      stepTools.delete(step.id);
-    }
-
-    if (index === targetIndex) {
-      return { input, output };
-    }
-
-    lastOutput = output;
-  }
-
-  return { input: lastOutput, output: lastOutput };
-}
-
-function getWorkflowStepDisplayName(step) {
-  if (!step) {
-    return "earlier step";
-  }
-  if (step.type === "input") {
-    return "Workflow Input";
-  }
-  if (step.type === "tool" || step.type === "map") {
-    return getToolById(step.toolId)?.metadata.name ?? step.toolId ?? "tool step";
-  }
-  if (step.type === "select-stream") {
-    return "Choose a different result";
-  }
-  return workflowStepTypeLabels[step.type] ?? step.type ?? "earlier step";
-}
-
-function getWorkflowStepInputDescription(workflow, step) {
-  if (!step.input) {
-    return "";
-  }
-
-  const sourceStep = (workflow?.steps ?? []).find((item) => item.id === step.input.from);
-  const streamName = step.input.stream ?? "primary";
-  let stream;
-
-  if (streamName === "primary") {
-    const sourceIndex = (workflow?.steps ?? []).findIndex((item) => item.id === step.input.from);
-    stream = sourceIndex >= 0 ? getWorkflowStepFlow(workflow, sourceIndex).output : undefined;
-  } else if (sourceStep?.type === "tool" || sourceStep?.type === "map") {
-    stream = getToolById(sourceStep.toolId)?.metadata.workflow?.outputs?.find((item) => item.id === streamName);
-  }
-
-  return `${describeStream(stream ?? { kind: streamName })} from ${getWorkflowStepDisplayName(sourceStep)}`;
-}
-
-function getWorkflowStepOutputDescription(step, flow) {
-  if (step.type === "tool" && step.selectStream && step.selectStream !== "primary") {
-    return describeWorkflowStreamChoice(flow.output);
-  }
-  if (step.type === "map" && step.selectStream && step.selectStream !== "primary") {
-    return describeWorkflowStreamChoice(flow.output);
-  }
-  return "";
-}
-
-function describeWorkflowStep(step, workflow) {
-  if (step.type === "input") {
-    return "Start from pasted or loaded sequence text";
-  }
-  if (step.type === "tool") {
-    const tool = tools.find((item) => item.metadata.id === step.toolId);
-    const input = step.input ? ` using ${getWorkflowStepInputDescription(workflow, step)}` : "";
-    const flow = workflow ? getWorkflowStepFlow(workflow, (workflow.steps ?? []).findIndex((item) => item.id === step.id)) : {};
-    const output = getWorkflowStepOutputDescription(step, flow);
-    if (!flow.input && (tool?.metadata.workflow?.inputs ?? []).length === 0) {
-      return `Start with ${tool?.metadata.name ?? step.toolId}${output ? `; output ${output}` : ""}`;
-    }
-    return `Run ${tool?.metadata.name ?? step.toolId}${input}${output ? `; output ${output}` : ""}`;
-  }
-  if (step.type === "select-stream") {
-    const flow = workflow ? getWorkflowStepFlow(workflow, (workflow.steps ?? []).findIndex((item) => item.id === step.id)) : {};
-    return `Use ${describeWorkflowStreamChoice(flow.output ?? { kind: step.stream })}`;
-  }
-  if (step.type === "split") {
-    return "Split multi-record FASTA into individual records";
-  }
-  if (step.type === "filter") {
-    const criteria = step.criteria ?? {};
-    return `Keep items where ${criteria.field ?? "field"} ${criteria.operator ?? "contains"} ${criteria.value ?? ""}`;
-  }
-  if (step.type === "sort") {
-    const criteria = step.criteria ?? {};
-    return `Sort by ${criteria.field ?? "title"} ${criteria.direction === "desc" ? "descending" : "ascending"}`;
-  }
-  if (step.type === "map") {
-    const tool = tools.find((item) => item.metadata.id === step.toolId);
-    const input = step.input ? ` from ${getWorkflowStepInputDescription(workflow, step)}` : "";
-    const flow = workflow ? getWorkflowStepFlow(workflow, (workflow.steps ?? []).findIndex((item) => item.id === step.id)) : {};
-    const output = getWorkflowStepOutputDescription(step, flow);
-    return `Run ${tool?.metadata.name ?? step.toolId} on each item${input}${output ? `; output ${output}` : ""}`;
-  }
-  if (step.type === "gather") {
-    return `Gather items as ${step.as ?? "auto"}`;
-  }
-  return step.type;
-}
-
-function renderWorkflowView() {
-  const preset = getSelectedWorkflowPreset();
-
-  elements.workflowPreset.textContent = "";
-  for (const item of workflowPresets) {
-    const option = document.createElement("option");
-    option.value = item.id;
-    option.textContent = item.name;
-    elements.workflowPreset.append(option);
-  }
-  elements.workflowPreset.value = preset.id;
-
-  elements.workflowSummary.textContent = "";
-  updateInputActionButtons();
-  const summary = document.createElement("p");
-  summary.className = "summary";
-  summary.textContent = state.importedWorkflow
-    ? "Imported workflow JSON is active. The preset selector remains available for replacing it."
-    : preset.summary;
-  elements.workflowSummary.append(summary);
-
-  const activeWorkflow = getActiveWorkflowDefinition();
-  const needsInput = workflowUsesInput(activeWorkflow);
-  elements.workflowInputTitle.textContent = needsInput ? "Workflow Input" : "Workflow Run";
-  elements.workflowInputActions.hidden = !needsInput;
-  elements.workflowInput.hidden = !needsInput;
-  elements.workflowInputNote.hidden = needsInput;
-  elements.workflowInputNote.textContent = needsInput
-    ? ""
-    : "This workflow creates its starting data with a tool, so no pasted input is needed.";
-  pruneExpandedWorkflowSteps(activeWorkflow);
-  const selectedStep = getSelectedWorkflowStep(activeWorkflow);
-  const lastOutput = getWorkflowLastOutput(activeWorkflow);
-  const current = document.createElement("div");
-  current.className = "workflow-current-stream";
-  const currentLabel = document.createElement("span");
-  currentLabel.textContent = "Current output";
-  const currentValue = document.createElement("strong");
-  currentValue.textContent = describeStream(lastOutput);
-  current.append(currentLabel, currentValue);
-  elements.workflowSummary.append(current);
-
-  const list = document.createElement("ol");
-  list.className = "workflow-step-list";
-  const steps = activeWorkflow.steps ?? [];
-  steps.forEach((step, index) => {
-    const flow = getWorkflowStepFlow(activeWorkflow, index);
-    const isExpanded = state.expandedWorkflowStepIds.has(step.id);
-    const item = document.createElement("li");
-    item.className = "workflow-step-item";
-    item.dataset.stepId = step.id;
-    item.dataset.expanded = String(isExpanded);
-    const card = document.createElement("div");
-    card.className = "workflow-step-card";
-    card.dataset.expanded = String(isExpanded);
-    card.dataset.selected = String(step.id === selectedStep?.id);
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = "workflow-step-toggle";
-    button.setAttribute("aria-expanded", String(isExpanded));
-    button.title = `${isExpanded ? "Collapse" : "Expand"} step ${step.id}`;
-    button.addEventListener("click", () => {
-      state.selectedWorkflowStepId = step.id;
-      if (state.expandedWorkflowStepIds.has(step.id)) {
-        state.expandedWorkflowStepIds.delete(step.id);
-      } else {
-        state.expandedWorkflowStepIds.add(step.id);
-      }
-      renderWorkflowView();
-    });
-    const title = document.createElement("strong");
-    title.textContent = getWorkflowStepDisplayName(step);
-    const detail = document.createElement("span");
-    detail.className = "workflow-step-detail";
-    detail.textContent = describeWorkflowStep(step, activeWorkflow);
-    const stepFlow = document.createElement("small");
-    if (step.type === "input") {
-      stepFlow.textContent = "Uses Workflow Input.";
-    } else if (!flow.input && step.type === "tool") {
-      stepFlow.textContent = `Creates starting data; produces ${describeWorkflowStreamChoice(flow.output)}`;
-    } else {
-      const inputDescription = step.input
-        ? getWorkflowStepInputDescription(activeWorkflow, step)
-        : describeStream(flow.input);
-      stepFlow.textContent = `Gets ${inputDescription}; produces ${describeWorkflowStreamChoice(flow.output)}`;
-    }
-
-    const actions = document.createElement("div");
-    actions.className = "workflow-step-actions";
-	    const deleteButton = document.createElement("button");
-	    deleteButton.type = "button";
-	    deleteButton.className = "icon-button workflow-delete-step";
-	    deleteButton.setAttribute("aria-label", `Remove step ${step.id}`);
-	    deleteButton.disabled = isOnlyWorkflowSourceStep(activeWorkflow, step);
-	    if (deleteButton.disabled) {
-	      deleteButton.title = "The only source step cannot be removed.";
-	    }
-	    deleteButton.innerHTML = `<svg viewBox="0 0 24 24" focusable="false" aria-hidden="true"><path d="M3 6h18"></path><path d="M8 6V4h8v2"></path><path d="M19 6l-1 14H6L5 6"></path><path d="M10 11v5"></path><path d="M14 11v5"></path></svg>`;
-    deleteButton.addEventListener("click", (event) => {
-      event.stopPropagation();
-      removeWorkflowStep(step.id);
-    });
-    actions.append(deleteButton);
-    button.append(title, detail, stepFlow);
-    card.append(button, actions);
-    item.append(card);
-    if (isExpanded) {
-      const editor = document.createElement("div");
-      editor.className = "workflow-step-editor";
-      renderWorkflowStepEditor(editor, step);
-      item.append(editor);
-    }
-    list.append(item);
-  });
-  elements.workflowSummary.append(list);
-  renderWorkflowBuilderControls();
-}
-
-function getCompatibleToolsForAppend(workflow) {
-  const lastOutput = getWorkflowOutputAtInsertionPoint(workflow);
-  if (!lastOutput) {
-    return tools.filter((tool) => (tool.metadata.workflow?.inputs ?? []).length === 0);
-  }
-  if (lastOutput.kind === "collection") {
-    return [];
-  }
-
-  return tools.filter((tool) =>
-    (tool.metadata.workflow?.inputs ?? []).some((input) => {
-      if (input.kind !== lastOutput.kind) {
-        return false;
-      }
-      if (input.alphabet && lastOutput.alphabet && input.alphabet !== lastOutput.alphabet) {
-        return false;
-      }
-      return true;
-    })
-  );
-}
-
-function getSelectableStreamsForAppend(workflow) {
-  const insertionIndex = getWorkflowInsertionIndex(workflow);
-  const previousSteps = (workflow.steps ?? []).slice(0, insertionIndex);
-  const lastToolStep = [...previousSteps].reverse().find((step) => step.type === "tool" || step.type === "map");
-  const tool = getToolById(lastToolStep?.toolId);
-  const outputs = getUserSelectableWorkflowOutputs(tool);
-  return outputs.length > 0 ? outputs : [{ id: "primary", kind: "text", mediaType: "text/plain" }];
-}
-
-function getWorkflowBuilderGuidance(workflow, stepType) {
-  const lastOutput = getWorkflowOutputAtInsertionPoint(workflow);
-  const current = describeStream(lastOutput);
-  if (!lastOutput) {
-    return "Choose how this workflow creates its starting data.";
-  }
-  return `Add the next compatible action. Current output: ${current}.`;
-}
-
-const workflowStepTypeLabels = {
-  tool: "Run a compatible tool",
-  "select-stream": "Choose a different result",
-  split: "Split FASTA records",
-  filter: "Filter rows or records",
-  sort: "Sort rows or records",
-  gather: "Gather mapped results",
-  map: "Run tool on each record"
-};
-
-const displayFormatWorkflowOptionIds = new Set(["formatFasta", "lineWidth"]);
-
-function makeWorkflowCollectionDescription(output, fallback = "result") {
-  if (!output) {
-    return fallback;
-  }
-  return describeStream(output);
-}
-
-function hasSelectableStreamsForAppend(workflow) {
-  return getSelectableStreamsForAppend(workflow).length > 1;
-}
-
-function getCompatibleStepTypesForAppend(workflow) {
-  const lastOutput = getWorkflowOutputAtInsertionPoint(workflow);
-  const stepTypes = [];
-
-  if (getCompatibleToolsForAppend(workflow).length > 0) {
-    stepTypes.push("tool");
-  }
-
-  if (!lastOutput || lastOutput.kind === "text" || lastOutput.kind === "sequence-records") {
-    stepTypes.push("split");
-  }
-
-  if (lastOutput?.kind === "collection") {
-    stepTypes.push("map", "filter", "sort", "gather");
-  } else if (lastOutput?.kind === "sequence-records" || lastOutput?.kind === "table") {
-    stepTypes.push("filter", "sort");
-  }
-
-  if (hasSelectableStreamsForAppend(workflow)) {
-    stepTypes.push("select-stream");
-  }
-
-  return [...new Set(stepTypes)];
-}
-
-function getUnavailableStepTypeReasons(workflow, availableStepTypes) {
-  const lastOutput = getWorkflowOutputAtInsertionPoint(workflow);
-  const available = new Set(availableStepTypes);
-  const reasons = [];
-
-  if (!available.has("tool")) {
-    reasons.push(
-      lastOutput?.kind === "collection"
-        ? "Run a compatible tool needs a single result; use Run tool on each record for a set."
-        : "Run a compatible tool is unavailable because no tool accepts the current output."
-    );
-  }
-
-  if (!available.has("split")) {
-    reasons.push("Split FASTA records needs text or sequence records.");
-  }
-
-  if (!available.has("map")) {
-    reasons.push("Run tool on each record needs a set from Split FASTA records.");
-  }
-
-  if (!available.has("filter") && !available.has("sort")) {
-    reasons.push("Filter and Sort need rows, sequence records, or a set.");
-  }
-
-  if (!available.has("gather")) {
-    reasons.push("Gather mapped results needs a set.");
-  }
-
-  if (!available.has("select-stream")) {
-    reasons.push("Choose a different result needs another usable output from the latest tool.");
-  }
-
-  return reasons;
-}
-
-function renderWorkflowStepTypeChoices(workflow) {
-  const previousValue = elements.workflowAddStepType.value;
-  const stepTypes = getCompatibleStepTypesForAppend(workflow);
-  elements.workflowAddStepType.textContent = "";
-
-  for (const stepType of stepTypes) {
-    const option = document.createElement("option");
-    option.value = stepType;
-    option.textContent =
-      !getWorkflowOutputAtInsertionPoint(workflow) && stepType === "tool"
-        ? "Create starting data with a tool"
-        : workflowStepTypeLabels[stepType] ?? stepType;
-    elements.workflowAddStepType.append(option);
-  }
-
-  if (stepTypes.includes(previousValue)) {
-    elements.workflowAddStepType.value = previousValue;
-  } else if (stepTypes.length > 0) {
-    elements.workflowAddStepType.value = stepTypes[0];
-  }
-
-  elements.workflowOpenAddStep.disabled = stepTypes.length === 0;
-
-  return stepTypes;
-}
-
-function renderWorkflowBuilderGuidance(workflow, stepType, availableStepTypes) {
-  elements.workflowBuilderGuidance.textContent = "";
-  const guidance = document.createElement("p");
-  guidance.textContent = getWorkflowBuilderGuidance(workflow, stepType);
-  elements.workflowBuilderGuidance.append(guidance);
-
-  const hiddenReasons = getUnavailableStepTypeReasons(workflow, availableStepTypes);
-  if (hiddenReasons.length === 0) {
-    return;
-  }
-
-  const details = document.createElement("details");
-  const summary = document.createElement("summary");
-  summary.textContent = "Why are some actions unavailable?";
-  const list = document.createElement("ul");
-  for (const reason of hiddenReasons) {
-    const item = document.createElement("li");
-    item.textContent = reason;
-    list.append(item);
-  }
-  details.append(summary, list);
-  elements.workflowBuilderGuidance.append(details);
-}
-
-function renderWorkflowBuilderControls() {
-  const workflow = workflowFromJsonOrActive();
-  const availableStepTypes = renderWorkflowStepTypeChoices(workflow);
-  elements.workflowAddStepDraft.hidden = !state.workflowAddStepOpen;
-  elements.workflowOpenAddStep.hidden = state.workflowAddStepOpen;
-  elements.workflowOpenAddStep.setAttribute("aria-expanded", String(state.workflowAddStepOpen));
-  if (!state.workflowAddStepOpen) {
-    elements.workflowBuilderGuidance.textContent = "";
-    return;
-  }
-  const stepType = elements.workflowAddStepType.value;
-  const showTool = stepType === "tool" || stepType === "map";
-  const showStream = stepType === "select-stream" || stepType === "map";
-  const showFilter = stepType === "filter";
-  const showSort = stepType === "sort";
-  const showGather = stepType === "gather";
-
-  elements.workflowAddToolRow.hidden = !showTool;
-  elements.workflowAddStreamRow.hidden = !showStream;
-  elements.workflowAddFilterFieldRow.hidden = !showFilter;
-  elements.workflowAddFilterOperatorRow.hidden = !showFilter;
-  elements.workflowAddFilterValueRow.hidden = !showFilter;
-  elements.workflowAddSortFieldRow.hidden = !showSort;
-  elements.workflowAddSortDirectionRow.hidden = !showSort;
-  elements.workflowAddGatherRow.hidden = !showGather;
-  renderWorkflowBuilderGuidance(workflow, stepType, availableStepTypes);
-
-  const fieldChoices = getWorkflowFieldChoicesAtInsertionPoint(workflow);
-  if (showFilter) {
-    replaceWorkflowFieldControl(elements.workflowAddFilterFieldRow, "workflowAddFilterField", fieldChoices, "length");
-  }
-  if (showSort) {
-    replaceWorkflowFieldControl(elements.workflowAddSortFieldRow, "workflowAddSortField", fieldChoices, "length");
-  }
-
-  if (showTool) {
-    const previousValue = elements.workflowAddTool.value;
-    const toolChoices = stepType === "tool" ? getCompatibleToolsForAppend(workflow) : tools;
-    elements.workflowAddTool.textContent = "";
-    for (const tool of toolChoices) {
-      const option = document.createElement("option");
-      option.value = tool.metadata.id;
-      option.textContent = tool.metadata.name;
-      elements.workflowAddTool.append(option);
-    }
-    if (toolChoices.some((tool) => tool.metadata.id === previousValue)) {
-      elements.workflowAddTool.value = previousValue;
-    }
-  }
-
-  if (showStream) {
-    const previousValue = elements.workflowAddStream.value;
-    const streams =
-      stepType === "map"
-        ? getUserSelectableWorkflowOutputs(getToolById(elements.workflowAddTool.value))
-        : getSelectableStreamsForAppend(workflow);
-    elements.workflowAddStream.textContent = "";
-    for (const stream of streams) {
-      const option = document.createElement("option");
-      option.value = stream.id;
-      option.textContent = describeWorkflowStreamChoice(stream);
-      elements.workflowAddStream.append(option);
-    }
-    if (streams.some((stream) => stream.id === previousValue)) {
-      elements.workflowAddStream.value = previousValue;
-    }
-  }
-}
-
-function getStreamsBeforeStep(workflow, stepId) {
-  const steps = workflow.steps ?? [];
-  const selectedIndex = steps.findIndex((step) => step.id === stepId);
-  const beforeSteps = selectedIndex >= 0 ? steps.slice(0, selectedIndex) : steps;
-  const lastToolStep = [...beforeSteps].reverse().find((step) => step.type === "tool" || step.type === "map");
-  const tool = getToolById(lastToolStep?.toolId);
-  const outputs = getUserSelectableWorkflowOutputs(tool);
-  return outputs.length > 0 ? outputs : [{ id: "primary", kind: "text", mediaType: "text/plain" }];
-}
-
-function stepFeedsExplicitWorkflowInput(workflow, stepId) {
-  return (workflow.steps ?? []).some((item) => item.input?.from === stepId);
-}
-
-function shouldShowWorkflowOption(workflow, step, option) {
-  const selectedStream = step.selectStream ?? "primary";
-
-  if (!displayFormatWorkflowOptionIds.has(option.id)) {
-    return true;
-  }
-
-  if (option.id === "outputFormat") {
-    if (selectedStream !== "primary") {
-      return false;
-    }
-    return !stepFeedsExplicitWorkflowInput(workflow, step.id);
-  }
-
-  return selectedStream === "primary" || selectedStream === "fasta";
-}
-
-function updateSelectedWorkflowStep(mutator, message) {
-  const workflow = workflowFromJsonOrActive();
-  const step = getSelectedWorkflowStep(workflow);
-  if (!step) {
-    return;
-  }
-
-  mutator(step, workflow);
-  setWorkflowDefinition(workflow);
-  clearWorkflowOutput();
-  renderWorkflowView();
-  addWorkflowMessage(message);
-}
-
-function makeTextInput(labelText, value, onChange) {
-  const label = document.createElement("label");
-  label.className = "number-row";
-  label.append(labelText);
-  const input = document.createElement("input");
-  input.type = "text";
-  input.value = value ?? "";
-  input.addEventListener("change", () => onChange(input.value));
-  label.append(input);
-  return label;
-}
-
-function makeSelectInput(labelText, value, choices, onChange) {
-  const label = document.createElement("label");
-  label.className = "select-row";
-  label.textContent = labelText;
-  const select = document.createElement("select");
-  for (const choice of choices) {
-    const option = document.createElement("option");
-    option.value = choice.value;
-    option.textContent = choice.label;
-    select.append(option);
-  }
-  select.value = value;
-  select.addEventListener("change", () => onChange(select.value));
-  label.append(select);
-  return label;
-}
-
-function makeFieldInput(labelText, value, choices, fallback, onChange) {
-  if (choices.length > 0) {
-    const normalizedChoices = choices.some((choice) => choice.value === value) || !value
-      ? choices
-      : [{ value, label: `Unknown field (${value})` }, ...choices];
-    const selectValue = normalizedChoices.some((choice) => choice.value === value)
-      ? value
-      : normalizedChoices.some((choice) => choice.value === fallback)
-        ? fallback
-        : normalizedChoices[0].value;
-    return makeSelectInput(labelText, selectValue, normalizedChoices, onChange);
-  }
-  return makeTextInput(labelText, value ?? fallback, onChange);
-}
-
-function renderWorkflowOperationEditor(workflow, step, container) {
-  const grid = document.createElement("div");
-  grid.className = "workflow-option-grid";
-
-  if (step.type === "split") {
-    const note = document.createElement("p");
-    note.className = "workflow-builder-guidance";
-    note.textContent = "Split has no settings yet. It turns incoming sequence text into one record per FASTA entry.";
-    container.append(note);
-    return;
-  }
-
-  if (step.type === "filter") {
-    const criteria = step.criteria ?? {};
-    const fieldChoices = getWorkflowFieldChoicesBeforeStep(workflow, step);
-    grid.append(
-      makeFieldInput("Field", criteria.field ?? "length", fieldChoices, "length", (value) =>
-        updateSelectedWorkflowStep(
-          (selectedStep) => {
-            selectedStep.criteria = { ...(selectedStep.criteria ?? {}), field: value || "length" };
-          },
-          `Updated ${step.id} filter field.`
-        )
-      )
-    );
-    grid.append(
-      makeSelectInput(
-        "Operator",
-        criteria.operator ?? ">=",
-        [
-          { value: ">=", label: ">=" },
-          { value: ">", label: ">" },
-          { value: "<=", label: "<=" },
-          { value: "<", label: "<" },
-          { value: "==", label: "==" },
-          { value: "!=", label: "!=" },
-          { value: "contains", label: "contains" },
-          { value: "matches", label: "matches" }
-        ],
-        (value) =>
-          updateSelectedWorkflowStep(
-            (selectedStep) => {
-              selectedStep.criteria = { ...(selectedStep.criteria ?? {}), operator: value };
-            },
-            `Updated ${step.id} filter operator.`
-          )
-      )
-    );
-    grid.append(
-      makeTextInput("Value", criteria.value ?? "", (value) =>
-        updateSelectedWorkflowStep(
-          (selectedStep) => {
-            selectedStep.criteria = { ...(selectedStep.criteria ?? {}), value };
-          },
-          `Updated ${step.id} filter value.`
-        )
-      )
-    );
-  }
-
-  if (step.type === "sort") {
-    const criteria = step.criteria ?? {};
-    const fieldChoices = getWorkflowFieldChoicesBeforeStep(workflow, step);
-    grid.append(
-      makeFieldInput("Sort field", criteria.field ?? "length", fieldChoices, "length", (value) =>
-        updateSelectedWorkflowStep(
-          (selectedStep) => {
-            selectedStep.criteria = { ...(selectedStep.criteria ?? {}), field: value || "length" };
-          },
-          `Updated ${step.id} sort field.`
-        )
-      )
-    );
-    grid.append(
-      makeSelectInput(
-        "Direction",
-        criteria.direction === "desc" ? "desc" : "asc",
-        [
-          { value: "asc", label: "Ascending" },
-          { value: "desc", label: "Descending" }
-        ],
-        (value) =>
-          updateSelectedWorkflowStep(
-            (selectedStep) => {
-              selectedStep.criteria = { ...(selectedStep.criteria ?? {}), direction: value === "desc" ? "desc" : "asc" };
-            },
-            `Updated ${step.id} sort direction.`
-          )
-      )
-    );
-  }
-
-  if (step.type === "gather") {
-    grid.append(
-      makeSelectInput(
-        "Gather as",
-        step.as ?? "auto",
-        [
-          { value: "auto", label: "Auto" },
-          { value: "sequence-records", label: "Sequence records" },
-          { value: "table", label: "Table" },
-          { value: "text", label: "Text" }
-        ],
-        (value) =>
-          updateSelectedWorkflowStep(
-            (selectedStep) => {
-              selectedStep.as = value;
-            },
-            `Updated ${step.id} gather mode.`
-          )
-      )
-    );
-  }
-
-  container.append(grid);
-}
-
-function renderWorkflowStepEditor(container, step) {
-  const workflow = workflowFromJsonOrActive();
-  const heading = document.createElement("h4");
-  heading.textContent = `Step settings: ${getWorkflowStepDisplayName(step)}`;
-  container.append(heading);
-
-  const help = document.createElement("p");
-  help.className = "summary";
-  help.textContent = describeWorkflowStep(step, workflow);
-  container.append(help);
-
-  if (step.type === "input") {
-    const note = document.createElement("p");
-    note.className = "workflow-builder-guidance";
-    note.textContent = "The input step uses the Workflow Input box below when the workflow runs.";
-    container.append(note);
-    return;
-  }
-
-  if (step.type === "select-stream") {
-    const grid = document.createElement("div");
-    grid.className = "workflow-option-grid";
-    const label = document.createElement("label");
-    label.className = "select-row";
-    label.textContent = "Result to use";
-    const select = document.createElement("select");
-    select.name = "stream";
-    const visibleStreams = getStreamsBeforeStep(workflow, step.id);
-    const stepIndex = (workflow.steps ?? []).findIndex((item) => item.id === step.id);
-    const previousToolStep = [...((workflow.steps ?? []).slice(0, stepIndex))].reverse().find((item) => item.type === "tool" || item.type === "map");
-    const currentTool = getToolById(previousToolStep?.toolId);
-    const currentStream = (currentTool?.metadata.workflow?.outputs ?? []).find((stream) => stream.id === step.stream);
-    const streams = currentStream && !visibleStreams.some((stream) => stream.id === currentStream.id)
-      ? [currentStream, ...visibleStreams]
-      : visibleStreams;
-    for (const stream of streams) {
-      const option = document.createElement("option");
-      option.value = stream.id;
-      option.textContent = describeWorkflowStreamChoice(stream);
-      select.append(option);
-    }
-    select.value = step.stream ?? streams[0]?.id ?? "primary";
-    select.addEventListener("change", () => {
-      updateSelectedWorkflowStep(
-        (selectedStep) => {
-          selectedStep.stream = select.value;
-        },
-        `Updated ${step.id} selected result.`
-      );
-    });
-    label.append(select);
-    grid.append(label);
-    container.append(grid);
-    return;
-  }
-
-  if (step.type === "filter" || step.type === "sort" || step.type === "gather" || step.type === "split") {
-    renderWorkflowOperationEditor(workflow, step, container);
-    return;
-  }
-
-  const tool = getToolById(step.toolId);
-  let editableOptions = flattenOptions(tool?.metadata.options ?? []).filter((option) =>
-    (
-      option.type === "radio" ||
-      option.type === "select" ||
-      option.type === "checkbox" ||
-      option.type === "number" ||
-      option.type === "text"
-    ) &&
-    shouldShowWorkflowOption(workflow, step, option)
-  );
-
-  const grid = document.createElement("div");
-  grid.className = "workflow-option-grid";
-  step.options = normalizeDependentOptionValues(editableOptions, {
-    ...makeDefaultOptions(tool),
-    ...(step.options ?? {})
-  });
-  editableOptions = editableOptions.filter((option) => {
-    if (!option.visibleWhen) {
-      return true;
-    }
-    return step.options[option.visibleWhen.option] === option.visibleWhen.value;
-  });
-
-  if (step.input) {
-    const note = document.createElement("p");
-    note.className = "workflow-builder-guidance";
-    note.textContent = `Input: ${getWorkflowStepInputDescription(workflow, step)}.`;
-    container.append(note);
-  }
-
-  if (step.type === "map" || step.type === "tool") {
-    const outputs = getUserSelectableWorkflowOutputs(tool);
-    const selectedStream = outputs.some((stream) => stream.id === (step.selectStream ?? "primary"))
-      ? (step.selectStream ?? "primary")
-      : (tool?.metadata.workflow?.outputs ?? []).some((stream) => stream.id === (step.selectStream ?? "primary"))
-        ? (step.selectStream ?? "primary")
-        : getRecommendedWorkflowOutputId(tool);
-    const label = document.createElement("label");
-    label.className = "select-row";
-    label.textContent = step.type === "map" ? "Keep from each record" : "Result to pass on";
-    const select = document.createElement("select");
-    select.name = "selectStream";
-    const selectOutputs = outputs.some((stream) => stream.id === selectedStream)
-      ? outputs
-      : [
-          ...((tool?.metadata.workflow?.outputs ?? []).filter((stream) => stream.id === selectedStream)),
-          ...outputs
-        ];
-    for (const stream of selectOutputs) {
-      const option = document.createElement("option");
-      option.value = stream.id;
-      option.textContent = describeWorkflowStreamChoice(stream);
-      select.append(option);
-    }
-    select.value = selectedStream;
-    select.addEventListener("change", () => {
-      updateSelectedWorkflowStep(
-        (selectedStep) => {
-          selectedStep.selectStream = select.value;
-        },
-        `Updated ${step.id} result.`
-      );
-    });
-    label.append(select);
-    grid.append(label);
-  }
-
-  for (const option of editableOptions) {
-    if (option.type === "radio" || option.type === "select") {
-      const label = document.createElement("label");
-      label.className = "select-row";
-      label.append(createOptionLabelContent(option));
-      const select = document.createElement("select");
-      select.name = option.id;
-      populateDependentSelect(select, option, step.options, step.options[option.id] ?? option.defaultValue);
-      select.addEventListener("change", () =>
-        updateSelectedWorkflowStep(
-          (selectedStep) => {
-            const nextOptions = { ...(selectedStep.options ?? {}), [option.id]: select.value };
-            selectedStep.options = normalizeDependentOptionValues(editableOptions, nextOptions);
-          },
-          `Updated ${step.id} option ${option.label}.`
-        )
-      );
-      label.append(select);
-      grid.append(label);
-      continue;
-    }
-
-    if (option.type === "checkbox") {
-      const label = document.createElement("label");
-      label.className = "checkbox-row";
-      const input = document.createElement("input");
-      input.type = "checkbox";
-      input.name = option.id;
-      input.checked = step.options[option.id] ?? option.defaultValue;
-      input.addEventListener("change", () =>
-        updateSelectedWorkflowStep(
-          (selectedStep) => {
-            selectedStep.options = { ...(selectedStep.options ?? {}), [option.id]: input.checked };
-          },
-          `Updated ${step.id} option ${option.label}.`
-        )
-      );
-      label.append(input, createOptionLabelContent(option));
-      grid.append(label);
-      continue;
-    }
-
-    if (option.type === "number") {
-      const label = document.createElement("label");
-      label.className = "number-row";
-      label.append(createOptionLabelContent(option));
-      const input = document.createElement("input");
-      input.type = "number";
-      input.name = option.id;
-      input.min = option.min;
-      input.max = option.max;
-      input.value = step.options[option.id] ?? option.defaultValue;
-      input.addEventListener("change", () => {
-        updateSelectedWorkflowStep(
-          (selectedStep) => {
-            selectedStep.options = {
-              ...(selectedStep.options ?? {}),
-              [option.id]: Number.parseInt(input.value, 10) || option.defaultValue
-            };
-          },
-          `Updated ${step.id} option ${option.label}.`
-        );
-      });
-      label.append(input);
-      grid.append(label);
-      continue;
-    }
-
-    if (option.type === "text") {
-      const label = document.createElement("label");
-      label.className = "text-row";
-      label.append(createOptionLabelContent(option));
-      const input = document.createElement("input");
-      input.type = "text";
-      input.name = option.id;
-      input.value = step.options[option.id] ?? option.defaultValue ?? "";
-      input.addEventListener("change", () => {
-        updateSelectedWorkflowStep(
-          (selectedStep) => {
-            selectedStep.options = { ...(selectedStep.options ?? {}), [option.id]: input.value };
-          },
-          `Updated ${step.id} option ${option.label}.`
-        );
-      });
-      label.append(input);
-      grid.append(label);
-    }
-  }
-
-  container.append(grid);
+async function deleteSavedWorkflowFromLibrary(...args) {
+  return workflowBuilder.deleteSavedWorkflowFromLibrary(...args);
 }
 
 function clearWorkflowOutput() {
@@ -4871,6 +3725,7 @@ function clearWorkflowOutput() {
   elements.workflowMessages.textContent = "";
   elements.workflowStepInspector.textContent = "";
   setOutputFormatLabel("workflow", null);
+  setOutputSearchRowVisible("workflow", false);
   elements.workflowOutputActions.hidden = true;
   renderOutputSearch("workflow");
 }
@@ -4878,8 +3733,12 @@ function clearWorkflowOutput() {
 function clearWorkflowJson() {
   elements.workflowJson.value = "";
   state.importedWorkflow = null;
+  state.activeSavedWorkflowId = "";
   state.selectedWorkflowStepId = null;
   state.expandedWorkflowStepIds = new Set();
+  workspaceInputSources.setWorkflowInputSourceMode("paste");
+  elements.workflowSaveName.value = "";
+  setWorkflowSavedStatus("");
 }
 
 function addMessage(text, className = "info") {
@@ -4984,30 +3843,34 @@ function makeRunAbortError(message = "Tool run was cancelled.") {
 }
 
 function loadWorkflowExample() {
+  workspaceInputSources.setWorkflowInputSourceMode("paste");
   elements.workflowInput.value = getSelectedWorkflowPreset().example;
   clearWorkflowOutput();
   updateInputActionButtons();
+  const activeWorkflow = getActiveWorkflowDefinition();
+  workspaceInputSources.renderWorkflowSource(activeWorkflow, workflowUsesInput(activeWorkflow));
 }
 
 function clearWorkflowInput() {
+  workspaceInputSources.setWorkflowInputSourceMode("paste");
   elements.workflowInput.value = "";
   clearWorkflowOutput();
   updateInputActionButtons();
+  const activeWorkflow = getActiveWorkflowDefinition();
+  workspaceInputSources.renderWorkflowSource(activeWorkflow, workflowUsesInput(activeWorkflow));
 }
 
-function exportSelectedWorkflowJson() {
-  state.importedWorkflow = null;
-  state.selectedWorkflowStepId = null;
-  state.expandedWorkflowStepIds = new Set();
-  const workflow = cloneWorkflow(getSelectedWorkflowPreset().workflow);
+function copyWorkflowDefinitionToEditor() {
+  const workflow = cloneWorkflow(getActiveWorkflowDefinition());
   const inputStep = workflow.steps.find((step) => step.type === "input");
   if (inputStep) {
     inputStep.text = "";
+    delete inputStep.workspaceSource;
   }
   elements.workflowJson.value = JSON.stringify(workflow, null, 2);
-  renderWorkflowView();
-  clearWorkflowOutput();
-  addWorkflowMessage("Exported preset workflow JSON.");
+  elements.workflowJsonPanel.open = true;
+  elements.workflowMessages.textContent = "";
+  addWorkflowMessage("Copied the current workflow recipe into the import/export editor.");
 }
 
 function parseWorkflowJson() {
@@ -5032,11 +3895,15 @@ function importWorkflowJson() {
   }
 
   state.importedWorkflow = parsed.workflow;
+  state.activeSavedWorkflowId = "";
   state.selectedWorkflowStepId = null;
   state.expandedWorkflowStepIds = new Set();
+  workspaceInputSources.setWorkflowInputSourceMode("paste");
+  elements.workflowSaveName.value = parsed.workflow?.name ?? "";
+  setWorkflowSavedStatus("");
   renderWorkflowView();
   clearWorkflowOutput();
-  addWorkflowMessage("Imported workflow JSON.");
+  addWorkflowMessage("Using the edited workflow.");
   return true;
 }
 
@@ -5050,7 +3917,7 @@ function validateWorkflowJsonFromEditor() {
     return false;
   }
 
-  addWorkflowMessage("Workflow JSON is valid.");
+  addWorkflowMessage("Workflow definition is valid.");
   return true;
 }
 
@@ -5117,117 +3984,20 @@ function renderWorkflowStepInspector(result, workflowDefinition = getActiveWorkf
   elements.workflowStepInspector.append(details);
 }
 
-function appendWorkflowStep() {
-  const workflow = getEditableWorkflow();
-  const stepType = elements.workflowAddStepType.value;
-  const insertionIndex = getWorkflowInsertionIndex(workflow);
-  let step;
-
-  if (stepType === "tool") {
-    const tool = getToolById(elements.workflowAddTool.value) ?? tools[0];
-    step = {
-      id: makeStepId(workflow, tool.metadata.id),
-      type: "tool",
-      toolId: tool.metadata.id,
-      selectStream: getRecommendedWorkflowOutputId(tool),
-      options: makeDefaultOptions(tool)
-    };
-  } else if (stepType === "map") {
-    const tool = getToolById(elements.workflowAddTool.value) ?? tools[0];
-    step = {
-      id: makeStepId(workflow, `map-${tool.metadata.id}`),
-      type: "map",
-      toolId: tool.metadata.id,
-      selectStream: elements.workflowAddStream.value || getRecommendedWorkflowOutputId(tool),
-      options: makeDefaultOptions(tool)
-    };
-  } else if (stepType === "select-stream") {
-    step = {
-      id: makeStepId(workflow, `select-${elements.workflowAddStream.value || "stream"}`),
-      type: "select-stream",
-      stream: elements.workflowAddStream.value || "primary"
-    };
-  } else if (stepType === "split") {
-    step = {
-      id: makeStepId(workflow, "split"),
-      type: "split"
-    };
-  } else if (stepType === "filter") {
-    step = {
-      id: makeStepId(workflow, "filter"),
-      type: "filter",
-      criteria: {
-        field: elements.workflowAddFilterField.value || "length",
-        operator: elements.workflowAddFilterOperator.value || ">=",
-        value: elements.workflowAddFilterValue.value || ""
-      }
-    };
-  } else if (stepType === "sort") {
-    step = {
-      id: makeStepId(workflow, "sort"),
-      type: "sort",
-      criteria: {
-        field: elements.workflowAddSortField.value || "title",
-        direction: elements.workflowAddSortDirection.value === "desc" ? "desc" : "asc"
-      }
-    };
-  } else if (stepType === "gather") {
-    step = {
-      id: makeStepId(workflow, "gather"),
-      type: "gather",
-      as: elements.workflowAddGatherAs.value || "auto"
-    };
-  }
-
-  if (!step) {
-    return;
-  }
-
-  workflow.steps.splice(insertionIndex, 0, step);
-  state.selectedWorkflowStepId = step.id;
-  state.expandedWorkflowStepIds.add(step.id);
-  state.workflowAddStepOpen = false;
-  setWorkflowDefinition(workflow);
-  renderWorkflowView();
-  clearWorkflowOutput();
-  addWorkflowMessage(`Inserted ${describeWorkflowStep(step, workflow)}.`);
+function appendWorkflowStep(...args) {
+  return workflowBuilder.appendWorkflowStep(...args);
 }
 
-function openWorkflowAddStepDraft() {
-  state.workflowAddStepOpen = true;
-  renderWorkflowView();
+function openWorkflowAddStepDraft(...args) {
+  return workflowBuilder.openWorkflowAddStepDraft(...args);
 }
 
-function cancelWorkflowAddStepDraft() {
-  state.workflowAddStepOpen = false;
-  renderWorkflowView();
+function cancelWorkflowAddStepDraft(...args) {
+  return workflowBuilder.cancelWorkflowAddStepDraft(...args);
 }
 
-function removeWorkflowStep(stepId = state.selectedWorkflowStepId) {
-  const workflow = getEditableWorkflow();
-  const steps = workflow.steps ?? [];
-  const targetIndex = steps.findIndex((step) => step.id === stepId);
-  const target = steps[targetIndex];
-
-  if (!target) {
-    elements.workflowMessages.textContent = "";
-    addWorkflowMessage("No workflow step to remove.", "warning");
-    return;
-  }
-
-  if (isOnlyWorkflowSourceStep(workflow, target)) {
-    elements.workflowMessages.textContent = "";
-    addWorkflowMessage("The only source step cannot be removed. Replace the starting workflow instead.", "warning");
-    return;
-  }
-
-  const [removed] = steps.splice(targetIndex, 1);
-  state.expandedWorkflowStepIds.delete(removed.id);
-  state.selectedWorkflowStepId = steps[Math.min(targetIndex, steps.length - 1)]?.id ?? null;
-  setWorkflowDefinition(workflow);
-  renderWorkflowView();
-  clearWorkflowOutput();
-  addWorkflowMessage(`Removed step ${removed.id ?? removed.type}.`);
+function removeWorkflowStep(...args) {
+  return workflowBuilder.removeWorkflowStep(...args);
 }
 
 async function runAppTool(tool, input, options = {}, context = {}) {
@@ -5278,18 +4048,6 @@ async function runSelectedWorkflow() {
   };
   setWorkflowRunning(true);
   try {
-    if (elements.workflowJson.value.trim()) {
-      const parsed = parseWorkflowJson();
-      const errors = parsed.errors.length > 0 ? parsed.errors : validateWorkflowDefinition(parsed.workflow, { tools });
-      if (errors.length > 0) {
-        elements.workflowMessages.textContent = "";
-        errors.forEach((error) => addWorkflowMessage(error, "warning"));
-        return;
-      }
-      state.importedWorkflow = parsed.workflow;
-      renderWorkflowView();
-    }
-
     const workflow = makeRunnableWorkflow();
     clearWorkflowOutput();
     addWorkflowMessage("Running workflow...");
@@ -5303,16 +4061,21 @@ async function runSelectedWorkflow() {
       }
     });
     const formatted = formatWorkflowValue(result.value);
+    const hasWorkflowVisual = Boolean(formatted.svg || formatted.viewer || formatted.figure);
     elements.workflowOutput.value = formatted.text;
     elements.workflowOutput.dataset.rawOutput = formatted.rawText;
     elements.workflowOutput.dataset.filename = formatted.filename ?? "sms3-workflow-output.txt";
     elements.workflowOutput.dataset.mimeType = formatted.mimeType ?? "text/plain";
-    elements.workflowOutput.dataset.visualOutput = formatted.svg ? "true" : "false";
+    elements.workflowOutput.dataset.visualOutput = hasWorkflowVisual ? "true" : "false";
     elements.workflowOutputSummary.textContent = formatted.summary;
     setOutputFormatLabel("workflow", formatted.outputLabel);
     renderWorkflowTableOutput(formatted.tableStream, Boolean(formatted.tableStream));
-    renderVisualOutput("workflow", formatted.svg);
-    elements.workflowOutput.hidden = Boolean(formatted.tableStream || formatted.svg);
+    renderVisualOutput("workflow", formatted.svg, {
+      viewer: formatted.viewer,
+      figure: formatted.figure
+    });
+    elements.workflowOutput.hidden = Boolean(formatted.tableStream || hasWorkflowVisual);
+    setOutputSearchRowVisible("workflow", Boolean(formatted.tableStream || (!hasWorkflowVisual && formatted.text)));
     updateOutputActions("workflow", {
       hidden: Boolean(formatted.tableStream),
       mimeType: formatted.mimeType,
@@ -5322,6 +4085,7 @@ async function runSelectedWorkflow() {
     renderWorkflowStepInspector(result, workflow);
     addWorkflowMessage(`Ran ${pluralize(result.steps.length, "step")}.`);
     appendOutputDetails(elements.workflowMessages, getWorkflowOutputDetails(result, formatted));
+    appendWorkflowWorkspacePromotionActions(elements.workflowMessages, result, workflow);
     appendWarningSummary(
       elements.workflowMessages,
       result.warnings,
@@ -5341,7 +4105,8 @@ async function runSelectedWorkflow() {
   }
 }
 
-function displayToolResult(result) {
+async function displayToolResult(result, inputText, options) {
+  state.currentToolDescription = await buildToolOutputDescription(result, inputText, options);
   renderGeneratedToolOutputChoice(result);
   renderMessages(result);
 }
@@ -5356,12 +4121,14 @@ async function runSelectedTool() {
     cancelActiveTool: null
   };
   setToolRunning(true);
+  resetToolOutputViewer("Run is in progress...");
   try {
     elements.messages.textContent = "";
     addMessage(getToolRunStatus(state.selectedTool));
     const inputText = getSelectedToolInputText();
-    displayToolResult(
-      await runAppTool(state.selectedTool, inputText, getOptions(), {
+    const options = getOptions();
+    await displayToolResult(
+      await runAppTool(state.selectedTool, inputText, options, {
         signal: abortController.signal,
         onProgress: (message) => {
           const detail = describeWorkerProgress(state.selectedTool, message);
@@ -5371,12 +4138,12 @@ async function runSelectedTool() {
           elements.messages.textContent = "";
           addMessage(detail);
         }
-      })
+      }),
+      inputText,
+      options
     );
   } catch (error) {
-    elements.messages.textContent = "";
-    elements.visualOutput.hidden = true;
-    elements.visualOutput.textContent = "";
+    resetToolOutputViewer("Run did not produce output.");
     if (error.name === "AbortError" || abortController.signal.aborted) {
       addMessage(`${state.selectedTool.metadata.name} run cancelled.`);
     } else {
@@ -5393,59 +4160,99 @@ async function loadInputFile(file) {
     return;
   }
 
+  if (getDirectInputFileOptionId(state.selectedTool)) {
+    workspaceInputSources.setToolSourceMode(state.selectedTool?.metadata?.id, "paste");
+    setDirectInputFile(file, state.selectedTool);
+    workspaceInputSources.renderToolSource();
+    addMessage(`Selected ${file.name || "local file"} (${Number(file.size ?? 0).toLocaleString()} bytes).`);
+    return;
+  }
+
   if (file.size > 25 * 1024 * 1024) {
     addMessage(`${file.name}: file is larger than 25 MB.`, "warning");
     return;
   }
 
   try {
-    elements.sequenceInput.value = await file.text();
-    elements.toolOutput.value = "";
-    elements.toolOutput.dataset.rawOutput = "";
-    elements.toolOutputHighlight.hidden = true;
-    elements.toolOutputHighlight.textContent = "";
-    elements.toolOutput.hidden = false;
-    elements.visualOutput.hidden = true;
-    elements.visualOutput.textContent = "";
-    elements.messages.textContent = "";
-    renderOutputSearch("tool");
+    workspaceInputSources.setToolSourceMode(state.selectedTool?.metadata?.id, "paste");
+    elements.sequenceInput.value = await readToolInputFileText(file, { onMessage: addMessage });
+    if (isMarkdownNotebookSelected()) {
+      elements.markdownInputFileName.value = markdownFilenameFromLoadedFile(file.name);
+      setMarkdownInputStatus(`Loaded ${file.name}. Click Run to start editing.`);
+      const workspaceFilename = getMarkdownWorkspaceControl("fileName");
+      if (workspaceFilename) {
+        workspaceFilename.value = markdownFilenameFromLoadedFile(file.name);
+      }
+      syncMarkdownWorkspaceFromSource(`Opened ${file.name}`);
+    }
+    if (isSamBamSummaryRegionViewerTool()) {
+      updateSamBamInputModeUi();
+    }
+    if (isVcfTabbedInputTool()) {
+      updateVcfInputModeUi();
+    }
+    if (isAlignmentViewerTool()) {
+      updateAlignmentViewerInputUi();
+    }
+    if (isFastaSourceTabbedTool()) {
+      updateFastaSourceInputUi();
+    }
+    if (isFastaRegionExtractorTool()) {
+      updateFastaRegionExtractorSourceUi();
+    }
+    if (isProteinStructureViewerTool()) {
+      updateProteinStructureViewerUi();
+    }
+    clearToolOutput();
     updateInputActionButtons();
+    workspaceInputSources.renderToolSource();
     addMessage(`Loaded ${file.name} (${file.size.toLocaleString()} bytes).`);
-  } catch {
-    addMessage(`${file.name}: could not read this file as text.`, "warning");
+  } catch (error) {
+    const detail = error?.message ? ` ${error.message}` : "";
+    addMessage(`${file.name}: could not read this file as text.${detail}`, "warning");
   }
 }
 
-function applyStoredTheme() {
-  const theme = localStorage.getItem("sms3-theme");
-  if (theme === "dark" || (!theme && window.matchMedia("(prefers-color-scheme: dark)").matches)) {
-    document.documentElement.dataset.theme = "dark";
+function wirePageHelpPopovers() {
+  document.querySelectorAll(".page-help").forEach((help) => {
+    const popover = help.nextElementSibling;
+    if (!popover?.classList?.contains("option-help-popover")) {
+      return;
+    }
+    const positionPopover = () => positionPageHelpPopover(help, popover);
+    help.addEventListener("mouseenter", positionPopover);
+    help.addEventListener("focus", positionPopover);
+    help.addEventListener("click", positionPopover);
+  });
+}
+
+function positionPageHelpPopover(help, popover) {
+  popover.style.setProperty("--option-help-left", "0px");
+  popover.style.setProperty("--option-help-top", "0px");
+  const helpRect = help.getBoundingClientRect();
+  const width = popover.offsetWidth || 320;
+  const height = popover.offsetHeight || 64;
+  const margin = 12;
+  const preferredLeft = helpRect.left;
+  const preferredTop = helpRect.bottom + 8;
+  const maxLeft = Math.max(margin, window.innerWidth - width - margin);
+  const left = Math.min(Math.max(margin, preferredLeft), maxLeft);
+  let top = preferredTop;
+  if (top + height + margin > window.innerHeight) {
+    top = helpRect.top - height - 8;
   }
-  elements.themeToggle.checked = document.documentElement.dataset.theme === "dark";
-}
-
-function applyStoredSidebarState() {
-  const collapsed = localStorage.getItem("sms3-sidebar") === "collapsed";
-  elements.appShell.classList.toggle("sidebar-collapsed", collapsed);
-  elements.appShell.classList.remove("sidebar-mobile-open");
-  updateSidebarToggleState();
-}
-
-function isNavigationHidden() {
-  return mobileNavigationQuery.matches
-    ? !elements.appShell.classList.contains("sidebar-mobile-open")
-    : elements.appShell.classList.contains("sidebar-collapsed");
-}
-
-function updateSidebarToggleState() {
-  const hidden = isNavigationHidden();
-  elements.sidebarToggle.setAttribute("aria-pressed", String(hidden));
-  elements.sidebarToggle.setAttribute("aria-label", hidden ? "Show navigation" : "Hide navigation");
+  top = Math.max(margin, top);
+  popover.style.setProperty("--option-help-left", `${left}px`);
+  popover.style.setProperty("--option-help-top", `${top}px`);
 }
 
 elements.toolSearch.addEventListener("input", renderToolList);
+wirePageHelpPopovers();
 elements.workflowLink.addEventListener("click", () => {
   selectWorkflow();
+});
+elements.workspaceLink.addEventListener("click", () => {
+  selectWorkspace();
 });
 elements.feedbackLink.addEventListener("click", () => {
   selectFeedback();
@@ -5460,7 +4267,11 @@ elements.workflowPreset.addEventListener("change", () => {
 elements.workflowLoadExample.addEventListener("click", loadWorkflowExample);
 elements.workflowClearInput.addEventListener("click", clearWorkflowInput);
 elements.workflowInput.addEventListener("input", updateInputActionButtons);
-elements.workflowExportJson.addEventListener("click", exportSelectedWorkflowJson);
+elements.workflowSavedSelect.addEventListener("change", updateSavedWorkflowActionButtons);
+elements.workflowSaveCurrent.addEventListener("click", saveCurrentWorkflowToLibrary);
+elements.workflowLoadSaved.addEventListener("click", loadSavedWorkflowFromLibrary);
+elements.workflowDeleteSaved.addEventListener("click", deleteSavedWorkflowFromLibrary);
+elements.workflowExportJson.addEventListener("click", copyWorkflowDefinitionToEditor);
 elements.workflowImportJson.addEventListener("click", importWorkflowJson);
 elements.workflowValidateJson.addEventListener("click", validateWorkflowJsonFromEditor);
 elements.workflowAddStepType.addEventListener("change", renderWorkflowBuilderControls);
@@ -5488,7 +4299,96 @@ keepOutputSearchButtonFromScrollingPage(elements.workflowOutputSearchPrevious);
 keepOutputSearchButtonFromScrollingPage(elements.workflowOutputSearchNext);
 elements.loadExample.addEventListener("click", loadSelectedToolExample);
 elements.clearInput.addEventListener("click", clearToolInputOutput);
-elements.sequenceInput.addEventListener("input", updateInputActionButtons);
+elements.sequenceInput.addEventListener("input", () => {
+  if (getCurrentDirectInputFile(state.selectedTool)) {
+    clearDirectInputFile();
+  }
+  updateInputActionButtons();
+  updateToolOptionSuggestions({ autofillColumns: true });
+  updateSamBamInputModeUi();
+  updateVcfInputModeUi();
+  updateAlignmentViewerInputUi();
+  updateFastaSourceInputUi();
+  updateFastaRegionExtractorSourceUi();
+  updateBiologicalRecordFormatConverterInputUi();
+  updateProteinStructureViewerUi();
+  if (isMarkdownNotebookSelected()) {
+    setMarkdownInputStatus("Unsaved changes");
+  }
+});
+elements.toolOptions.addEventListener("input", (event) => {
+  if (event.target?.dataset?.autofilledColumn === "true") {
+    event.target.dataset.autofilledColumn = "false";
+  }
+  persistLimitOptionControlValue(event.target);
+  updateToolOptionSuggestions();
+  updateSamBamInputModeUi();
+  updateVcfInputModeUi();
+  updateAlignmentViewerInputUi();
+  updateFastaSourceInputUi();
+  updateFastaRegionExtractorSourceUi();
+  updateBiologicalRecordFormatConverterInputUi();
+  updateProteinStructureViewerUi();
+  sangerTraceWorkspace.update();
+  updatePcrPrimerDesignUi();
+});
+elements.toolOptions.addEventListener("change", (event) => {
+  handleProteinStructureChainControlChange(event.target);
+  persistLimitOptionControlValue(event.target);
+  updateToolOptionSuggestions();
+  updateSamBamInputModeUi();
+  updateVcfInputModeUi();
+  updateAlignmentViewerInputUi();
+  updateFastaSourceInputUi();
+  updateFastaRegionExtractorSourceUi();
+  updateBiologicalRecordFormatConverterInputUi();
+  updateProteinStructureViewerUi();
+  sangerTraceWorkspace.update();
+  updatePcrPrimerDesignUi({
+    applyPreset: event.target?.name === "designPreset" || event.target?.id === "designPreset"
+  });
+  updateMarkdownInputUi();
+});
+elements.toolOptions.addEventListener("click", (event) => {
+  if (queueProteinStructureChainControlUpdate(event.target)) {
+    return;
+  }
+});
+elements.markdownInsertTemplate.addEventListener("click", insertMarkdownNotebookTemplate);
+elements.markdownSaveDraft.addEventListener("click", async () => {
+  try {
+    await saveMarkdownNotebookDraft({
+      markdown: elements.sequenceInput.value,
+      filename: getMarkdownInputFilename()
+    });
+    setMarkdownInputStatus(`Saved ${new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`);
+  } catch (error) {
+    setMarkdownInputStatus(error.message || "Draft save failed");
+  }
+});
+elements.markdownLoadDraft.addEventListener("click", async () => {
+  try {
+    const draft = await loadMarkdownNotebookDraft();
+    if (!draft) {
+      setMarkdownInputStatus("No saved draft found");
+      return;
+    }
+    elements.sequenceInput.value = draft.markdown ?? "";
+    elements.markdownInputFileName.value = normalizeMarkdownFilename(draft.filename);
+    elements.sequenceInput.dispatchEvent(new Event("input", { bubbles: true }));
+    setMarkdownInputStatus(`Loaded draft from ${new Date(draft.updatedAt).toLocaleString()}`);
+  } catch (error) {
+    setMarkdownInputStatus(error.message || "Draft load failed");
+  }
+});
+elements.markdownCopyInput.addEventListener("click", async () => {
+  await navigator.clipboard.writeText(elements.sequenceInput.value);
+  setMarkdownInputStatus("Copied Markdown");
+});
+elements.markdownDownloadInput.addEventListener("click", () => {
+  downloadText(elements.sequenceInput.value, getMarkdownInputFilename(), "text/markdown;charset=utf-8");
+  setMarkdownInputStatus("Downloaded Markdown");
+});
 elements.cancelTool.addEventListener("click", cancelSelectedToolRun);
 elements.restoreDefaults.addEventListener("click", restoreCurrentToolDefaults);
 elements.fileInput.addEventListener("change", async () => {
@@ -5523,30 +4423,24 @@ elements.downloadOutput.addEventListener("click", () => {
     elements.toolOutput.dataset.mimeType || "text/plain"
   );
 });
-elements.themeToggle.addEventListener("change", () => {
-  const next = elements.themeToggle.checked ? "dark" : "light";
-  document.documentElement.dataset.theme = next;
-  localStorage.setItem("sms3-theme", next);
-});
-elements.sidebarToggle.addEventListener("click", () => {
-  if (mobileNavigationQuery.matches) {
-    elements.appShell.classList.toggle("sidebar-mobile-open");
-  } else {
-    const collapsed = !elements.appShell.classList.contains("sidebar-collapsed");
-    elements.appShell.classList.toggle("sidebar-collapsed", collapsed);
-    localStorage.setItem("sms3-sidebar", collapsed ? "collapsed" : "expanded");
+elements.downloadPngOutput.addEventListener("click", async () => {
+  const svg = elements.toolOutput.dataset.pngOutput || elements.toolOutput.dataset.rawOutput || elements.toolOutput.value;
+  if (!svg) {
+    return;
   }
-  updateSidebarToggleState();
+  elements.downloadPngOutput.disabled = true;
+  try {
+    await downloadSvgAsPng(svg, getPngFilename(elements.toolOutput.dataset.filename || "sms3-output.svg"));
+  } finally {
+    elements.downloadPngOutput.disabled = false;
+  }
 });
-mobileNavigationQuery.addEventListener("change", () => {
-  elements.appShell.classList.remove("sidebar-mobile-open");
-  updateSidebarToggleState();
-});
+appLayout.mount();
 window.addEventListener("popstate", applyRouteFromHash);
 window.addEventListener("hashchange", applyRouteFromHash);
 
-applyStoredTheme();
-applyStoredSidebarState();
+appLayout.applyStoredTheme();
+appLayout.applyStoredSidebarState();
 loadAppVersion();
 if (!applyRouteFromHash()) {
   renderActiveView();
@@ -5556,6 +4450,9 @@ if (!applyRouteFromHash()) {
   renderSelectedReference();
   renderFeedbackTemplates();
   renderWorkflowView();
+  renderWorkspaceView();
   loadSelectedToolExample();
   loadWorkflowExample();
 }
+refreshSavedWorkflowList();
+refreshWorkspaceSequences();

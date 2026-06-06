@@ -39,3 +39,47 @@ export function formatFastaRecord(title, sequence, lineWidth = 60) {
   return `${lines.join("\n")}\n`;
 }
 
+function isLikelySequenceLine(line) {
+  const text = String(line ?? "").trim();
+  return /[A-Za-z*?]/.test(text) && /^[A-Za-z*.?-]+$/.test(text);
+}
+
+function flushFastaRecord(record, output, lineWidth) {
+  if (!record) {
+    return;
+  }
+  output.push(record.header);
+  const sequence = record.sequenceParts.join("").replace(/\s+/g, "");
+  for (let index = 0; index < sequence.length; index += lineWidth) {
+    output.push(sequence.slice(index, index + lineWidth));
+  }
+}
+
+export function wrapFastaText(input, lineWidth = 60) {
+  const text = String(input ?? "");
+  if (!text.trim().startsWith(">")) {
+    return text;
+  }
+  const width = Math.max(1, Number.parseInt(lineWidth, 10) || 60);
+  const lines = text.replace(/\r\n?/g, "\n").split("\n");
+  const output = [];
+  let record = null;
+
+  for (const line of lines) {
+    if (line.startsWith(">")) {
+      flushFastaRecord(record, output, width);
+      record = { header: line, sequenceParts: [] };
+      continue;
+    }
+    if (record && isLikelySequenceLine(line)) {
+      record.sequenceParts.push(line.trim());
+      continue;
+    }
+    flushFastaRecord(record, output, width);
+    record = null;
+    output.push(line);
+  }
+  flushFastaRecord(record, output, width);
+
+  return output.join("\n").replace(/\n{3,}/g, "\n\n");
+}

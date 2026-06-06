@@ -35,20 +35,26 @@ export function makeCollectionStream(items, itemKind = "") {
 export function makeToolResult({
   output,
   download,
+  downloads = [],
   warnings = [],
   recordsProcessed = 0,
   basesProcessed = 0,
+  processedUnitLabel = "base",
   charactersRemoved = 0,
   streams = {},
-  visual
+  visual,
+  optionsUsed
 }) {
   return {
     output,
     download,
+    downloads,
     warnings,
     recordsProcessed,
     basesProcessed,
+    processedUnitLabel,
     charactersRemoved,
+    optionsUsed,
     streams: {
       primary: makeTextStream(output, download?.mimeType ?? "text/plain"),
       warnings: makeWarningsStream(warnings),

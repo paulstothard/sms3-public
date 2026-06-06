@@ -77,21 +77,52 @@ function formatLine(label, value) {
   return `${label.padEnd(10)}${value}`;
 }
 
+function chooseRulerStep(start, end, width) {
+  const maxCoordinateWidth = Math.max(String(start).length, String(end).length);
+  const minimumSpacing = maxCoordinateWidth + 2;
+  const steps = [10, 20, 50, 100, 200, 500, 1000, 2000, 5000, 10000, 20000, 50000, 100000];
+  return steps.find((step) => Math.min(step, width) >= minimumSpacing) ?? 100000;
+}
+
+function placeRulerLabel(line, text, startIndex, width, spacing = 1) {
+  const label = String(text ?? "").slice(0, width);
+  const start = clamp(startIndex, 0, Math.max(0, width - label.length));
+  const end = Math.min(width, start + label.length);
+  if (hasCollision(line, start, end, spacing)) {
+    return false;
+  }
+  for (let index = 0; index < label.length && start + index < width; index += 1) {
+    line[start + index] = label[index];
+  }
+  return true;
+}
+
 function makeRuler(start, end) {
   const width = end - start + 1;
-  const lanes = [makeBlank(width)];
-  for (let position = start; position <= end; position += 1) {
-    if (position === start || position === end || position % 10 === 0) {
-      placeText(lanes, String(position), position - start, width);
+  const line = makeBlank(width);
+  const step = chooseRulerStep(start, end, width);
+  placeRulerLabel(line, String(start), 0, width, 1);
+  for (let position = Math.ceil(start / step) * step; position <= end; position += step) {
+    if (position !== start && position !== end) {
+      placeRulerLabel(line, String(position), position - start, width, 1);
     }
   }
-  return lanes[0].join("").trimEnd();
+  placeRulerLabel(line, String(end), width - String(end).length, width, 1);
+  return line.join("").trimEnd();
 }
 
 function getAnnotationLabel(annotation) {
   const label = annotation.label || annotation.type || "hit";
   const strand = annotation.strand && annotation.strand !== "+" ? ` ${annotation.strand}` : "";
   return `${label}${strand} ${annotation.start}-${annotation.end}`;
+}
+
+function shouldShowSecondStrand(options = {}) {
+  const alphabet = String(options.alphabet ?? options.molecule ?? "").toLowerCase();
+  if (alphabet === "protein") {
+    return false;
+  }
+  return options.showSecondStrand === true || options.showComplement === true || options.secondStrand === "complement";
 }
 
 function renderBlock(sequence, annotations, start, end, options = {}) {
@@ -124,15 +155,14 @@ function renderBlock(sequence, annotations, start, end, options = {}) {
     lines.push(formatLine("span", lane.spans.join("").trimEnd()));
   }
   lines.push(formatLine("seq", chunk));
-  if (options.showComplement) {
-    lines.push(formatLine("comp", complementDnaRnaSequence(chunk, { preserveCase: false })));
+  if (shouldShowSecondStrand(options)) {
+    lines.push(formatLine(options.secondStrandLabel ?? "comp", complementDnaRnaSequence(chunk, { preserveCase: false })));
   }
   return lines.join("\n");
 }
 
 export function renderTextAnnotationMap(records, options = {}) {
   const width = Math.max(10, Number.parseInt(options.width, 10) || 60);
-  const showComplement = options.showComplement === true;
   const sections = [];
 
   for (const record of records) {
@@ -148,10 +178,60 @@ export function renderTextAnnotationMap(records, options = {}) {
     const lines = [`>${record.title ?? "sequence"} text annotation map`, `length ${sequence.length}`];
     for (let start = 1; start <= sequence.length; start += width) {
       const end = Math.min(sequence.length, start + width - 1);
-      lines.push("", renderBlock(sequence, annotations, start, end, { showComplement }));
+      lines.push("", renderBlock(sequence, annotations, start, end, options));
     }
     sections.push(lines.join("\n").trimEnd());
   }
 
   return sections.join("\n\n");
+}
+
+export function makeTextAnnotationRecord({
+  title,
+  sequence,
+  items = [],
+  labelPrefix = "m",
+  startField = "start",
+  endField = "end",
+  strandField = "strand",
+  labelField = "label",
+  labelForItem,
+  includeStrand = true
+} = {}) {
+  return {
+    title,
+    sequence,
+    annotations: items.flatMap((item, index) => {
+      const label = typeof labelForItem === "function"
+        ? labelForItem(item, index)
+        : item[labelField] ?? `${labelPrefix}${index + 1}`;
+      const parts = Array.isArray(item.parts) && item.parts.length > 0
+        ? item.parts
+        : [{ start: item[startField], end: item[endField], strand: item[strandField] }];
+      return parts.map((part) => ({
+        start: item[startField],
+        end: item[endField],
+        ...part,
+        ...(includeStrand ? { strand: part.strand ?? item[strandField] } : {}),
+        label
+      }));
+    })
+  };
+}
+
+export function renderTextAnnotationMapFromItems(records, options = {}) {
+  return renderTextAnnotationMap(records.map((record) =>
+    makeTextAnnotationRecord({
+      title: record.title,
+      sequence: record.sequence,
+      items: record.items ?? record.annotations ?? [],
+      labelPrefix: options.labelPrefix ?? "m",
+      startField: options.startField ?? "start",
+      endField: options.endField ?? "end",
+      strandField: options.strandField ?? "strand",
+      labelField: options.labelField ?? "label",
+      labelForItem: options.labelForItem,
+      includeStrand: options.includeStrand !== false
+    })
+  ), options);
 }

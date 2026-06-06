@@ -2,6 +2,7 @@ import {
   fastaValidationTableColumns,
   validateFasta
 } from "../../core/fasta-validator.js";
+import { resolveFastaSourceInput } from "../fasta-source-runner.js";
 import { makeTableStream, makeTextStream, makeToolResult } from "../../core/workflow.js";
 
 const TABLE_COLUMNS = fastaValidationTableColumns;
@@ -23,7 +24,11 @@ export async function runFastaValidatorNormalizer(input, options = {}, context =
   context.throwIfCancelled?.();
   await context.yieldIfNeeded?.();
 
-  const result = validateFasta(input, options);
+  const resolvedInput = await resolveFastaSourceInput(input, options, context);
+  const result = validateFasta(resolvedInput.input, options);
+  if (resolvedInput.warnings.length) {
+    result.warnings.unshift(...resolvedInput.warnings);
+  }
   context.reportProgress?.({ phase: "building-output", progress: 0.75 });
   context.throwIfCancelled?.();
   await context.yieldIfNeeded?.();

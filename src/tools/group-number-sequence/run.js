@@ -1,6 +1,13 @@
 import { parseSequenceInput } from "../../core/fasta.js";
-import { cleanSequence, complementDnaRnaSequence, groupSequence } from "../../core/sequence.js";
+import {
+  cleanSequence,
+  complementDnaRnaSequence,
+  getGroupedSequenceNumberWidth,
+  groupSequence
+} from "../../core/sequence.js";
 import { makeTextStream, makeToolResult } from "../../core/workflow.js";
+
+const LARGE_GROUPED_OUTPUT_WARNING_BYTES = 1000000;
 
 function getAlphabetLabel(alphabet) {
   return alphabet === "protein" ? "protein" : "DNA/RNA";
@@ -38,13 +45,14 @@ function groupSequenceWithComplement(sequence, options = {}) {
   }).split("\n");
   const lines = [];
   const showPositionNumbers = options.showPositionNumbers === true;
+  const numberWidth = getGroupedSequenceNumberWidth(sequence, options);
 
   for (let index = 0; index < grouped.length; index += 1) {
     lines.push(grouped[index]);
 
     const complementLine = groupedComplement[index] ?? "";
     if (showPositionNumbers) {
-      lines.push(`${"".padStart(8, " ")} ${complementLine}`);
+      lines.push(`${"".padStart(numberWidth, " ")} ${complementLine}`);
     } else {
       lines.push(complementLine);
     }
@@ -53,7 +61,8 @@ function groupSequenceWithComplement(sequence, options = {}) {
   return lines.join("\n");
 }
 
-export function runGroupNumberSequence(input, options = {}) {
+export function runGroupNumberSequence(input, options = {}, context = {}) {
+  context.throwIfCancelled?.();
   const records = parseSequenceInput(input, "sequence");
   const warnings = [];
 
@@ -76,6 +85,7 @@ export function runGroupNumberSequence(input, options = {}) {
   let charactersRemoved = 0;
 
   for (const record of records) {
+    context.throwIfCancelled?.();
     const mismatchWarning = getAlphabetMismatchWarning(record.sequence, alphabet);
     if (mismatchWarning) {
       warnings.push(`${record.title}: ${mismatchWarning}`);
@@ -130,6 +140,11 @@ export function runGroupNumberSequence(input, options = {}) {
   }
 
   const output = `${outputParts.join("\n\n")}\n`;
+  if (output.length > LARGE_GROUPED_OUTPUT_WARNING_BYTES) {
+    warnings.push(
+      `Grouped output is ${output.length.toLocaleString()} characters. Copy/download may be slow for very large grouped outputs.`
+    );
+  }
 
   return makeToolResult({
     output,
@@ -158,10 +173,10 @@ export function runGroupNumberSequence(input, options = {}) {
   });
 }
 
-export function runGroupNumberDnaRna(input, options = {}) {
-  return runGroupNumberSequence(input, { ...options, alphabet: "dna-rna" });
+export function runGroupNumberDnaRna(input, options = {}, context = {}) {
+  return runGroupNumberSequence(input, { ...options, alphabet: "dna-rna" }, context);
 }
 
-export function runGroupNumberProtein(input, options = {}) {
-  return runGroupNumberSequence(input, { ...options, alphabet: "protein", showComplement: false });
+export function runGroupNumberProtein(input, options = {}, context = {}) {
+  return runGroupNumberSequence(input, { ...options, alphabet: "protein", showComplement: false }, context);
 }

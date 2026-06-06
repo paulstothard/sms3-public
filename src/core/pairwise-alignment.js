@@ -1,6 +1,8 @@
 import { formatFastaRecord, parseSequenceInput } from "./fasta.js";
 import { getGeneticCode, makeCodonMap } from "./genetic-code.js";
-import { cleanDnaRnaSequence, cleanProteinSequence } from "./sequence.js";
+import { makeAlignmentSvg } from "./alignment-svg.js";
+import { createBioWasmCli, requireBioWasmRuntime } from "./biowasm-runner.js";
+import { cleanDnaRnaSequence, cleanProteinSequence, complementDnaRnaSequence } from "./sequence.js";
 
 // Algorithms and scoring model:
 // - Global alignment follows Needleman and Wunsch, J Mol Biol. 1970;48:443-453.
@@ -13,7 +15,11 @@ const STATE_X = 1;
 const STATE_Y = 2;
 const STATE_STOP = 3;
 const MAX_ALIGNMENT_CELLS = 2_000_000;
-const SVG_CELL_LIMIT = 1600;
+export const PAIRWISE_ALIGNMENT_ENGINES = {
+  seqAlign: "seq-align",
+  sms3: "sms3-affine"
+};
+export const BIOWASM_SEQ_ALIGN_VERSION = "2017.10.18";
 
 // BLOSUM62 values from Henikoff and Henikoff, Proc Natl Acad Sci USA.
 // 1992;89:10915-10919, using the standard NCBI/BLAST ordering.
@@ -133,6 +139,10 @@ function cleanForAlphabet(record, alphabet) {
   return cleaner(record.sequence, { keepGaps: false, preserveCase: false });
 }
 
+function reverseComplementDnaRna(sequence) {
+  return Array.from(complementDnaRnaSequence(sequence, { preserveCase: false })).reverse().join("");
+}
+
 function splitCompleteCodons(sequence) {
   const source = String(sequence ?? "").toUpperCase().replaceAll("U", "T");
   const usableLength = source.length - (source.length % 3);
@@ -172,6 +182,222 @@ function normalizeOptions(options = {}) {
     gapExtend: -Math.abs(Number.parseFloat(options.gapExtend) || 1),
     lineWidth: Math.max(20, Math.min(120, Number.parseInt(options.lineWidth, 10) || 60)),
     scoringMatrix: options.scoringMatrix === "blosum62" ? "blosum62" : "identity"
+  };
+}
+
+function normalizeRequestedAlignmentEngine(value) {
+  if (value === PAIRWISE_ALIGNMENT_ENGINES.seqAlign) {
+    return PAIRWISE_ALIGNMENT_ENGINES.seqAlign;
+  }
+  if (value === PAIRWISE_ALIGNMENT_ENGINES.sms3) {
+    return PAIRWISE_ALIGNMENT_ENGINES.sms3;
+  }
+  return "";
+}
+
+function pushUniqueWarning(warnings, warning) {
+  if (Array.isArray(warnings) && !warnings.includes(warning)) {
+    warnings.push(warning);
+  }
+}
+
+async function getBioWasmSeqAlignCli(program) {
+  // BioWasm/Aioli runs the public-domain seq-align WebAssembly build locally
+  // in the browser. seq-align supports Needleman-Wunsch, Smith-Waterman,
+  // BLOSUM/PAM scoring, and affine gaps from its command-line interface.
+  return createBioWasmCli({
+    tool: "seq-align",
+    program,
+    version: BIOWASM_SEQ_ALIGN_VERSION,
+    assetPath: "../vendor/biowasm/seq-align/2017.10.18"
+  });
+}
+
+function hasExactSeqAlignScoringSupport(sequenceA, sequenceB, alphabet, options) {
+  const integerScores = alphabet === "protein"
+    ? [options.gapOpen, options.gapExtend]
+    : [options.matchScore, options.mismatchScore, options.gapOpen, options.gapExtend];
+  if (!integerScores.every((score) => Number.isInteger(score))) {
+    return "seq-align accepts integer scoring parameters only";
+  }
+
+  if (alphabet === "dna-rna") {
+    const combined = `${sequenceA}${sequenceB}`.toUpperCase();
+    const hasUnsupportedAmbiguity = /[^ACGTU]/.test(combined);
+    if (hasUnsupportedAmbiguity && options.similarScore !== options.mismatchScore) {
+      return "seq-align cannot reproduce SMS3 IUPAC-overlap scoring for ambiguous DNA/RNA symbols";
+    }
+    if (combined.includes("T") && combined.includes("U") && options.similarScore !== options.matchScore) {
+      return "seq-align cannot reproduce SMS3 T/U overlap scoring when DNA and RNA symbols are mixed";
+    }
+  }
+
+  return "";
+}
+
+function seqAlignSequence(sequence, alphabet) {
+  return alphabet === "dna-rna" ? sequence.replaceAll("U", "T") : sequence;
+}
+
+function restoreAlignedSymbols(alignedSequence, originalSequence, start) {
+  let sourceIndex = Math.max(0, start - 1);
+  return Array.from(alignedSequence, (symbol) => {
+    if (symbol === "-") {
+      return "-";
+    }
+    const originalSymbol = originalSequence[sourceIndex] ?? symbol;
+    sourceIndex += 1;
+    return originalSymbol;
+  }).join("");
+}
+
+function seqAlignGapOpen(options) {
+  // seq-align uses open + N * extend; SMS3 uses open + (N - 1) * extend.
+  return options.gapOpen - options.gapExtend;
+}
+
+function parseSeqAlignGlobalOutput(stdout) {
+  const lines = String(stdout ?? "")
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const scoreLine = lines.find((line) => /^score:\s*/i.test(line));
+  if (lines.length < 3 || !scoreLine) {
+    throw new Error("seq-align did not return a parseable global alignment.");
+  }
+  return {
+    alignmentA: lines[0],
+    alignmentB: lines[1],
+    score: Number.parseFloat(scoreLine.replace(/^score:\s*/i, ""))
+  };
+}
+
+function parseSeqAlignLocalOutput(stdout) {
+  const text = String(stdout ?? "");
+  const hit = text.match(/hit\s+\S+\s+score:\s+(-?\d+(?:\.\d+)?)\s*\n\s+(\S+)\s+\[pos:\s*(\d+);\s*len:\s*(\d+)\]\s*\n\s+(\S+)\s+\[pos:\s*(\d+);\s*len:\s*(\d+)\]/m);
+  if (!hit) {
+    return {
+      alignmentA: "",
+      alignmentB: "",
+      score: 0,
+      startA: 1,
+      endA: 0,
+      startB: 1,
+      endB: 0
+    };
+  }
+  const startA = Number.parseInt(hit[3], 10) + 1;
+  const startB = Number.parseInt(hit[6], 10) + 1;
+  const lengthA = Number.parseInt(hit[4], 10);
+  const lengthB = Number.parseInt(hit[7], 10);
+  return {
+    alignmentA: hit[2],
+    alignmentB: hit[5],
+    score: Number.parseFloat(hit[1]),
+    startA,
+    endA: startA + lengthA - 1,
+    startB,
+    endB: startB + lengthB - 1
+  };
+}
+
+async function alignPairwiseWithBioWasmSeqAlign(sequenceA, sequenceB, rawOptions = {}, context = {}, cliFactory = getBioWasmSeqAlignCli) {
+  const options = normalizeOptions(rawOptions);
+  const alphabet = rawOptions.alphabet === "protein" ? "protein" : "dna-rna";
+  const originalA = String(sequenceA ?? "").toUpperCase();
+  const originalB = String(sequenceB ?? "").toUpperCase();
+  const a = seqAlignSequence(originalA, alphabet);
+  const b = seqAlignSequence(originalB, alphabet);
+  const program = options.mode === "local" ? "smith_waterman" : "needleman_wunsch";
+  const cli = await cliFactory(program);
+  const args = [];
+
+  if (options.mode === "global") {
+    args.push("--printscores");
+  } else {
+    args.push("--maxhits", "1", "--minscore", "1");
+  }
+  if (alphabet === "protein") {
+    args.push("--scoring", "BLOSUM62");
+  } else {
+    args.push("--match", String(options.matchScore), "--mismatch", String(options.mismatchScore));
+  }
+  args.push(
+    "--gapopen",
+    String(seqAlignGapOpen(options)),
+    "--gapextend",
+    String(options.gapExtend),
+    a,
+    b
+  );
+
+  context.reportProgress?.({ phase: options.mode === "local" ? "running-smith-waterman" : "running-needleman-wunsch", progress: 0.45 });
+  const result = await cli.exec(program, args);
+  context.throwIfCancelled?.();
+  await context.yieldIfNeeded?.();
+  if (result?.stderr) {
+    throw new Error(`seq-align reported an error: ${result.stderr.trim()}`);
+  }
+
+  const parsed = options.mode === "local"
+    ? parseSeqAlignLocalOutput(result?.stdout)
+    : {
+        ...parseSeqAlignGlobalOutput(result?.stdout),
+        startA: 1,
+        endA: originalA.length,
+        startB: 1,
+        endB: originalB.length
+      };
+  const alignmentA = restoreAlignedSymbols(parsed.alignmentA, originalA, parsed.startA);
+  const alignmentB = restoreAlignedSymbols(parsed.alignmentB, originalB, parsed.startB);
+  return {
+    ...summarizeAlignment({
+      alignmentA,
+      alignmentB,
+      alphabet,
+      score: parsed.score,
+      options: { ...options, alignmentEngine: PAIRWISE_ALIGNMENT_ENGINES.seqAlign },
+      startA: parsed.startA,
+      endA: parsed.endA,
+      startB: parsed.startB,
+      endB: parsed.endB
+    }),
+    engine: PAIRWISE_ALIGNMENT_ENGINES.seqAlign,
+    engineVersion: BIOWASM_SEQ_ALIGN_VERSION
+  };
+}
+
+async function alignPairwiseWithSelectedEngine(sequenceA, sequenceB, rawOptions = {}, alphabet = "dna-rna", warnings = [], context = {}, cliFactory = getBioWasmSeqAlignCli) {
+  const requestedEngine = normalizeRequestedAlignmentEngine(rawOptions.alignmentEngine);
+  const preferredEngine = requestedEngine || PAIRWISE_ALIGNMENT_ENGINES.seqAlign;
+  const options = normalizeOptions(rawOptions);
+
+  if (preferredEngine === PAIRWISE_ALIGNMENT_ENGINES.seqAlign) {
+    requireBioWasmRuntime("seq-align");
+    const unsupportedReason = hasExactSeqAlignScoringSupport(sequenceA, sequenceB, alphabet, options);
+    if (unsupportedReason) {
+      throw new Error(`${unsupportedReason}. Select the SMS3 affine engine to use SMS3 scoring for this input.`);
+    }
+    return alignPairwiseWithBioWasmSeqAlign(sequenceA, sequenceB, { ...rawOptions, alphabet }, context, cliFactory);
+  }
+
+  return alignPairwiseAffine(sequenceA, sequenceB, { ...rawOptions, alphabet }, context);
+}
+
+export function createPairwiseAlignmentRunner(rawOptions = {}, alphabet = "dna-rna", warnings = [], context = {}) {
+  const cliByProgram = new Map();
+  const cachedCliFactory = async (program) => {
+    if (!cliByProgram.has(program)) {
+      cliByProgram.set(program, await getBioWasmSeqAlignCli(program));
+    }
+    return cliByProgram.get(program);
+  };
+
+  return {
+    align(sequenceA, sequenceB, optionOverrides = {}) {
+      const options = { ...rawOptions, ...optionOverrides, alphabet };
+      return alignPairwiseWithSelectedEngine(sequenceA, sequenceB, options, alphabet, warnings, context, cachedCliFactory);
+    }
   };
 }
 
@@ -223,7 +449,7 @@ function makeCellIndex(width) {
 }
 
 export async function alignPairwiseAffine(sequenceA, sequenceB, rawOptions = {}, context = {}) {
-  const options = normalizeOptions(rawOptions);
+  const options = { ...normalizeOptions(rawOptions), alignmentEngine: PAIRWISE_ALIGNMENT_ENGINES.sms3 };
   const alphabet = rawOptions.alphabet === "protein" ? "protein" : "dna-rna";
   const a = String(sequenceA ?? "").toUpperCase();
   const b = String(sequenceB ?? "").toUpperCase();
@@ -389,17 +615,21 @@ export async function alignPairwiseAffine(sequenceA, sequenceB, rawOptions = {},
   alignedB.reverse();
   const alignmentA = alignedA.join("");
   const alignmentB = alignedB.join("");
-  return summarizeAlignment({
-    alignmentA,
-    alignmentB,
-    alphabet,
-    score: bestScore,
-    options,
-    startA: i + 1,
-    endA,
-    startB: j + 1,
-    endB
-  });
+  return {
+    ...summarizeAlignment({
+      alignmentA,
+      alignmentB,
+      alphabet,
+      score: bestScore,
+      options,
+      startA: i + 1,
+      endA,
+      startB: j + 1,
+      endB
+    }),
+    engine: PAIRWISE_ALIGNMENT_ENGINES.sms3,
+    engineVersion: ""
+  };
 }
 
 function classifyColumn(a, b, alphabet, options) {
@@ -514,8 +744,36 @@ export async function preparePairwiseAlignment(input, rawOptions = {}, alphabet 
     };
   });
 
-  const alignment = await alignPairwiseAffine(records[0].sequence, records[1].sequence, { ...rawOptions, alphabet }, context);
-  return { warnings, records, alignment, charactersRemoved };
+  let alignment = null;
+  if (alphabet === "dna-rna" && rawOptions.secondSequenceOrientation === "best") {
+    const directAlignment = await alignPairwiseWithSelectedEngine(records[0].sequence, records[1].sequence, { ...rawOptions, alphabet }, alphabet, warnings, context);
+    const reverseComplementSequence = reverseComplementDnaRna(records[1].sequence);
+    const reverseComplementAlignment = await alignPairwiseWithSelectedEngine(records[0].sequence, reverseComplementSequence, { ...rawOptions, alphabet }, alphabet, warnings, context);
+    const selectedReverseComplement = reverseComplementAlignment.score > directAlignment.score;
+    alignment = selectedReverseComplement ? reverseComplementAlignment : directAlignment;
+    alignment.orientationSelection = {
+      mode: "best-of-two",
+      selected: selectedReverseComplement ? "reverse-complement" : "as-provided",
+      asProvidedScore: directAlignment.score,
+      reverseComplementScore: reverseComplementAlignment.score,
+      tiePolicy: "as-provided"
+    };
+    if (selectedReverseComplement) {
+      records[1] = {
+        ...records[1],
+        title: `${records[1].title} reverse complement`,
+        sequence: reverseComplementSequence,
+        originalSequenceLength: cleaned[1].sequence.length
+      };
+    }
+  } else {
+    alignment = await alignPairwiseWithSelectedEngine(records[0].sequence, records[1].sequence, { ...rawOptions, alphabet }, alphabet, warnings, context);
+    alignment.orientationSelection = {
+      mode: "as-provided",
+      selected: "as-provided"
+    };
+  }
+  return { warnings: [...new Set(warnings)], records, alignment, charactersRemoved };
 }
 
 export async function preparePairwiseCodonAlignment(input, rawOptions = {}, context = {}) {
@@ -557,13 +815,13 @@ export async function preparePairwiseCodonAlignment(input, rawOptions = {}, cont
     return { warnings: [...warnings, "Both sequences must contain at least one complete codon."], records, alignment: null, charactersRemoved };
   }
 
-  const proteinAlignment = await alignPairwiseAffine(records[0].protein, records[1].protein, {
+  const proteinAlignment = await alignPairwiseWithSelectedEngine(records[0].protein, records[1].protein, {
     ...rawOptions,
     alphabet: "protein",
     scoringMatrix: "blosum62"
-  }, context);
+  }, "protein", warnings, context);
   const alignment = projectProteinAlignmentToCodons(records, proteinAlignment, code);
-  return { warnings, records, alignment, charactersRemoved, geneticCode: code };
+  return { warnings: [...new Set(warnings)], records, alignment, charactersRemoved, geneticCode: code };
 }
 
 function projectProteinAlignmentToCodons(records, proteinAlignment, geneticCode) {
@@ -643,12 +901,24 @@ export function makePairwiseAlignmentReport(records, alignment, options = {}) {
     return "";
   }
   const similarLabel = alignment.alphabet === "protein" ? "Positive-scoring substitution columns" : "Similar/ambiguous-overlap columns";
+  const engineLabel = alignment.engine === PAIRWISE_ALIGNMENT_ENGINES.seqAlign
+    ? `seq-align ${alignment.engineVersion || BIOWASM_SEQ_ALIGN_VERSION} via vendored BioWasm/Aioli`
+    : "SMS3 affine dynamic programming";
   const lines = [
     "Pairwise sequence alignment",
     "",
     `Sequence A: ${records[0].title} (${records[0].sequence.length} symbols)`,
     `Sequence B: ${records[1].title} (${records[1].sequence.length} symbols)`,
+    ...(alignment.orientationSelection?.mode === "best-of-two"
+      ? [
+          `Sequence B orientation: ${alignment.orientationSelection.selected === "reverse-complement" ? "reverse complement selected" : "submitted orientation selected"}`,
+          `Sequence B submitted-orientation score: ${alignment.orientationSelection.asProvidedScore}`,
+          `Sequence B reverse-complement score: ${alignment.orientationSelection.reverseComplementScore}`,
+          `Orientation tie policy: ${alignment.orientationSelection.tiePolicy}`
+        ]
+      : []),
     `Mode: ${alignment.mode === "local" ? "Local Smith-Waterman" : "Global Needleman-Wunsch"}`,
+    `Engine: ${engineLabel}`,
     `Scoring: ${alignment.alphabet === "protein" ? "BLOSUM62" : `match ${options.matchScore ?? 5}, similar ${options.similarScore ?? 1}, mismatch ${options.mismatchScore ?? -4}`}, gap open ${options.gapOpen ?? 10}, gap extend ${options.gapExtend ?? 1}`,
     `Affine gap model: Gotoh`,
     `Score: ${alignment.score}`,
@@ -663,7 +933,7 @@ export function makePairwiseAlignmentReport(records, alignment, options = {}) {
     `Sequence A aligned range: ${alignment.startA}-${alignment.endA}`,
     `Sequence B aligned range: ${alignment.startB}-${alignment.endB}`,
     "",
-    `References: Needleman and Wunsch 1970; Smith and Waterman 1981; Gotoh 1982${alignment.alphabet === "protein" ? "; Henikoff and Henikoff 1992" : ""}.`
+    `References: Needleman and Wunsch 1970; Smith and Waterman 1981; Gotoh 1982${alignment.alphabet === "protein" ? "; Henikoff and Henikoff 1992" : ""}${alignment.engine === PAIRWISE_ALIGNMENT_ENGINES.seqAlign ? "; seq-align/BioWasm browser runtime" : ""}.`
   ];
   return lines.join("\n");
 }
@@ -713,7 +983,7 @@ export function makeClustal(records, alignment, lineWidth = 60) {
   const nameA = records[0].title.replace(/\s+/g, "_").slice(0, 24) || "sequence_a";
   const nameB = records[1].title.replace(/\s+/g, "_").slice(0, 24) || "sequence_b";
   const labelWidth = Math.max(nameA.length, nameB.length, 12);
-  const lines = ["CLUSTAL W multiple sequence alignment", ""];
+  const lines = ["CLUSTAL multiple sequence alignment", ""];
 
   for (let index = 0; index < alignment.alignmentA.length; index += width) {
     const chunkA = alignment.alignmentA.slice(index, index + width);
@@ -744,12 +1014,16 @@ export function makePairwiseCodonAlignmentReport(records, alignment) {
   if (!alignment) {
     return "";
   }
+  const engineLabel = alignment.engine === PAIRWISE_ALIGNMENT_ENGINES.seqAlign
+    ? `seq-align ${alignment.engineVersion || BIOWASM_SEQ_ALIGN_VERSION} via vendored BioWasm/Aioli`
+    : "SMS3 affine dynamic programming";
   return [
     "Pairwise coding DNA alignment",
     "",
     `Sequence A: ${records[0].title} (${records[0].codons.length} complete codons)`,
     `Sequence B: ${records[1].title} (${records[1].codons.length} complete codons)`,
     `Mode: ${alignment.mode === "local" ? "Local Smith-Waterman on translated codons" : "Global Needleman-Wunsch on translated codons"}`,
+    `Engine: ${engineLabel}`,
     `Scoring: BLOSUM62 on translated amino acids, gap open ${Math.abs(alignment.options?.gapOpen ?? 10)}, gap extend ${Math.abs(alignment.options?.gapExtend ?? 1)} per codon gap`,
     `Genetic code: ${alignment.geneticCode.id}. ${alignment.geneticCode.name}`,
     `Affine gap model: Gotoh`,
@@ -765,7 +1039,7 @@ export function makePairwiseCodonAlignmentReport(records, alignment) {
     `Sequence A nucleotide range: ${alignment.nucleotideStartA}-${alignment.nucleotideEndA}`,
     `Sequence B nucleotide range: ${alignment.nucleotideStartB}-${alignment.nucleotideEndB}`,
     "",
-    "References: Needleman and Wunsch 1970; Smith and Waterman 1981; Gotoh 1982; Henikoff and Henikoff 1992. Genetic code assignments follow NCBI transl_table definitions."
+    `References: Needleman and Wunsch 1970; Smith and Waterman 1981; Gotoh 1982; Henikoff and Henikoff 1992${alignment.engine === PAIRWISE_ALIGNMENT_ENGINES.seqAlign ? "; seq-align/BioWasm browser runtime" : ""}. Genetic code assignments follow NCBI transl_table definitions.`
   ].join("\n");
 }
 
@@ -834,69 +1108,38 @@ export function makeCodonAlignmentTsv(alignment) {
 }
 
 export function makeColoredAlignmentSvg(records, alignment, lineWidth = 60) {
-  if (alignment.alignedLength > SVG_CELL_LIMIT) {
-    return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 140" role="img" aria-label="Colored pairwise alignment not drawn"><style>.title{font:600 18px system-ui,sans-serif;fill:#111827}.note{font:13px system-ui,sans-serif;fill:#475569}</style><text class="title" x="32" y="48">Colored alignment not drawn</text><text class="note" x="32" y="82">The alignment has ${alignment.alignedLength} columns. Use text, CLUSTAL, FASTA, or TSV output for the complete alignment.</text></svg>`;
-  }
-
-  const width = Math.max(20, Math.min(120, Number.parseInt(lineWidth, 10) || 60));
-  const cell = 15;
-  const labelX = 24;
-  const labelPixelWidth = 126;
-  const coordinatePixelWidth = Math.max(6, alignmentCoordinateWidth(alignment)) * 7;
-  const left = labelX + labelPixelWidth + 12 + coordinatePixelWidth + 12;
-  const startCoordinateX = left - 8;
-  const endCoordinatePadding = 4;
-  const top = 52;
-  const blockGap = 82;
-  const blocks = Math.ceil(alignment.alignedLength / width);
-  const height = top + blocks * (cell * 2 + blockGap) + 36;
-  const svgWidth = left + width * cell + endCoordinatePadding + coordinatePixelWidth + 24;
-  const svg = [
-    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${svgWidth} ${height}" role="img" aria-label="Colored pairwise alignment">`,
-    "<style>.title{font:600 18px system-ui,sans-serif;fill:#111827}.label{font:12px system-ui,sans-serif;fill:#334155}.coord{font:11px ui-monospace,SFMono-Regular,Menlo,monospace;fill:#475569}.coord-start{text-anchor:end}.coord-end{text-anchor:start}.cell{font:12px ui-monospace,SFMono-Regular,Menlo,monospace;text-anchor:middle;dominant-baseline:central;fill:#111827}.legend{font:12px system-ui,sans-serif;fill:#475569}</style>",
-    `<text class="title" x="24" y="30">${escapeXml(records[0].title)} vs ${escapeXml(records[1].title)}</text>`
-  ];
-  let positionA = alignment.startA;
-  let positionB = alignment.startB;
-
-  for (let block = 0; block < blocks; block += 1) {
-    const start = block * width;
-    const yA = top + block * (cell * 2 + blockGap);
-    const yB = yA + cell + 2;
-    const chunkA = alignment.alignmentA.slice(start, start + width);
-    const chunkB = alignment.alignmentB.slice(start, start + width);
-    const countA = chunkA.replace(/-/g, "").length;
-    const countB = chunkB.replace(/-/g, "").length;
-    const startA = positionA;
-    const startB = positionB;
-    const endA = countA > 0 ? positionA + countA - 1 : positionA - 1;
-    const endB = countB > 0 ? positionB + countB - 1 : positionB - 1;
-    svg.push(`<text class="label" x="${labelX}" y="${yA + 11}">${escapeXml(records[0].title.slice(0, 18))}</text>`);
-    svg.push(`<text class="label" x="${labelX}" y="${yB + 11}">${escapeXml(records[1].title.slice(0, 18))}</text>`);
-    svg.push(`<text class="coord coord-start" x="${startCoordinateX}" y="${yA + 11}">${countA > 0 ? startA : ""}</text>`);
-    svg.push(`<text class="coord coord-start" x="${startCoordinateX}" y="${yB + 11}">${countB > 0 ? startB : ""}</text>`);
-    svg.push(`<text class="coord coord-end" x="${left + chunkA.length * cell + endCoordinatePadding}" y="${yA + 11}">${countA > 0 ? endA : ""}</text>`);
-    svg.push(`<text class="coord coord-end" x="${left + chunkB.length * cell + endCoordinatePadding}" y="${yB + 11}">${countB > 0 ? endB : ""}</text>`);
-    for (let offset = 0; offset < width && start + offset < alignment.alignedLength; offset += 1) {
-      const idx = start + offset;
-      const x = left + offset * cell;
-      const relation = alignment.columns[idx].relation;
-      const fill =
-        relation === "match" ? "#bbf7d0" : relation === "similar" ? "#dbeafe" : relation === "mismatch" ? "#fecaca" : "#e5e7eb";
-      svg.push(`<rect x="${x}" y="${yA}" width="${cell - 1}" height="${cell}" fill="${fill}"></rect>`);
-      svg.push(`<rect x="${x}" y="${yB}" width="${cell - 1}" height="${cell}" fill="${fill}"></rect>`);
-      svg.push(`<text class="cell" x="${x + cell / 2}" y="${yA + cell / 2}">${escapeXml(alignment.alignmentA[idx])}</text>`);
-      svg.push(`<text class="cell" x="${x + cell / 2}" y="${yB + cell / 2}">${escapeXml(alignment.alignmentB[idx])}</text>`);
-    }
-    positionA += countA;
-    positionB += countB;
-  }
-
   const legend =
     alignment.alphabet === "protein"
       ? "Green exact match; blue positive-scoring substitution; red zero/negative-scoring substitution; gray gap."
       : "Green exact match; blue ambiguous overlap; red mismatch; gray gap.";
-  svg.push(`<text class="legend" x="24" y="${height - 18}">${legend} Score ${alignment.score}; identity ${alignment.identityPercent.toFixed(2)}%.</text>`);
-  svg.push("</svg>");
-  return svg.join("\n");
+  return makeAlignmentSvg({
+    title: `${records[0].title} vs ${records[1].title}`,
+    note: "Coordinates count bases or amino acids and ignore gaps.",
+    rows: [
+      { label: records[0].title, aligned: alignment.alignmentA, start: alignment.startA },
+      { label: records[1].title, aligned: alignment.alignmentB, start: alignment.startB }
+    ],
+    columnRelations: alignment.columns.map((column) => column.relation),
+    lineWidth,
+    legend,
+    summary: `Score ${alignment.score}; identity ${alignment.identityPercent.toFixed(2)}%.`,
+    ariaLabel: "Colored pairwise alignment"
+  });
+}
+
+export function makeColoredCodonAlignmentSvg(records, alignment, lineWidth = 20) {
+  const columnRelations = alignment.codonColumns.flatMap((column) => [column.relation, column.relation, column.relation]);
+  return makeAlignmentSvg({
+    title: `${records[0].title} vs ${records[1].title}`,
+    note: "Coordinates count nucleotides and ignore gaps; codon triplets are colored by the translated amino-acid alignment relation.",
+    rows: [
+      { label: records[0].title, aligned: alignment.codonAlignmentA.join(""), start: alignment.nucleotideStartA },
+      { label: records[1].title, aligned: alignment.codonAlignmentB.join(""), start: alignment.nucleotideStartB }
+    ],
+    columnRelations,
+    lineWidth: Math.max(30, Math.min(180, (Number.parseInt(lineWidth, 10) || 20) * 3)),
+    legend: "Green exact amino-acid match; blue positive-scoring substitution; red zero/negative-scoring substitution; gray codon gap.",
+    summary: `Score ${alignment.score}; amino acid identity ${alignment.identityPercent.toFixed(2)}%.`,
+    ariaLabel: "Colored pairwise coding DNA alignment"
+  });
 }

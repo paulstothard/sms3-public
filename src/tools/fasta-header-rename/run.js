@@ -2,6 +2,7 @@ import {
   fastaHeaderRenameTableColumns,
   renameFastaHeaders
 } from "../../core/fasta-header-rename.js";
+import { resolveFastaSourceInput } from "../fasta-source-runner.js";
 import { makeTableStream, makeTextStream, makeToolResult } from "../../core/workflow.js";
 
 const OUTPUT_FORMATS = new Set(["fasta", "report", "tsv"]);
@@ -27,7 +28,11 @@ export async function runFastaHeaderRename(input, options = {}, context = {}) {
   context.throwIfCancelled?.();
   await context.yieldIfNeeded?.();
 
-  const result = renameFastaHeaders(input, options);
+  const resolvedInput = await resolveFastaSourceInput(input, options, context);
+  const result = renameFastaHeaders(resolvedInput.input, options);
+  if (resolvedInput.warnings.length) {
+    result.warnings.unshift(...resolvedInput.warnings);
+  }
 
   context.reportProgress?.({ phase: "building-output", progress: 0.75 });
   context.throwIfCancelled?.();

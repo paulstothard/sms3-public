@@ -4,11 +4,11 @@ import vectorSummary from "../../reference-data/vector-contamination/summary.js"
 export const vectorContaminationScannerMetadata = {
   id: "vector-contamination-scanner",
   name: "Vector Contamination Scanner",
-  category: "Analyze DNA/RNA",
-  tags: ["DNA", "RNA", "vector", "adapter", "contamination", "reference data"],
+  category: "Sequence Analysis",
+  tags: ["DNA", "RNA", "raw", "vector", "adapter", "contamination", "reference data"],
   summary: "Screen DNA/RNA sequences for vector-like contamination using bundled indexed references.",
   inputType: "DNA/RNA sequence",
-  outputType: "Report, TSV table",
+  outputType: "Report, table, text annotation map, linear contamination map, or linear DNA sequence viewer",
   runInWorker: true,
   workerModule: "../tools/vector-contamination-scanner/run.js",
   workerExport: "runVectorContaminationScanner",
@@ -26,6 +26,9 @@ export const vectorContaminationScannerMetadata = {
         schema: "vector-contamination-scanner",
         columns: vectorContaminationTableColumns
       },
+      { id: "textMap", kind: "text", mediaType: "text/plain" },
+      { id: "overview", kind: "text", mediaType: "image/svg+xml" },
+      { id: "viewer", kind: "viewer", viewerType: "dna-sequence-viewer" },
       { id: "warnings", kind: "warnings" }
     ]
   },
@@ -82,7 +85,11 @@ export const vectorContaminationScannerMetadata = {
       defaultValue: "report",
       choices: [
         { value: "report", label: "Summary report" },
-        { value: "tsv", label: "TSV table" }
+        { value: "tsv", label: "Table" },
+        { value: "text-map", label: "Text annotation map" },
+        { value: "svg-map", label: "Linear contamination map" },
+        { value: "interactive-viewer", label: "Linear DNA sequence viewer" },
+        { value: "interactive-circular-viewer", label: "Circular DNA sequence viewer" }
       ]
     },
     {

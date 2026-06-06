@@ -3,10 +3,10 @@ const TABLE_COLUMNS = [];
 export const tableGroupSummaryMetadata = {
   id: "table-group-summary",
   name: "Table Group Summary",
-  category: "Analyze Tables",
-  tags: ["table", "CSV", "TSV", "statistics", "workflow"],
-  summary: "Group a CSV or TSV table by selected columns and calculate counts plus numeric summary statistics.",
-  inputType: "CSV/TSV table",
+  category: "Tables",
+  tags: ["table", "CSV", "TSV", "Excel", "statistics"],
+  summary: "Group a CSV, TSV, or Excel table by selected columns and calculate counts plus numeric summary statistics.",
+  inputType: "CSV, TSV, or Excel table",
   outputType: "Grouped summary table or report",
   workflow: {
     inputs: [
@@ -32,6 +32,7 @@ export const tableGroupSummaryMetadata = {
           id: "delimiter",
           type: "select",
           label: "Delimiter",
+          help: "The character that separates columns. Auto detect checks common delimiters while respecting quoted fields.",
           defaultValue: "auto",
           choices: [
             { value: "auto", label: "Auto detect" },
@@ -41,23 +42,43 @@ export const tableGroupSummaryMetadata = {
             { value: "pipe", label: "Pipe" }
           ]
         },
-        { id: "hasHeader", type: "checkbox", label: "First row contains column names", defaultValue: true },
-        { id: "trimCells", type: "checkbox", label: "Trim cells before summarizing", defaultValue: true }
+        {
+          id: "hasHeader",
+          type: "checkbox",
+          label: "First row contains column names",
+          defaultValue: true,
+          help: "When disabled, generic names such as Column 1 and Column 2 are assigned. Blank header cells are also renamed this way and reported as warnings."
+        },
+        {
+          id: "trimCells",
+          type: "checkbox",
+          label: "Trim cells before summarizing",
+          defaultValue: true,
+          help: "Removes spaces around group and value cells before missing-value checks and summary calculations."
+        }
       ]
     },
     {
       id: "groupColumns",
-      type: "text",
+      type: "value-list",
       label: "Group columns",
+      addLabel: "+ Group column",
+      itemLabel: "group column",
+      itemPlaceholder: "Column",
       defaultValue: "treatment",
-      help: "Enter visible column names or normalized ids separated by commas. Leave blank to summarize all rows together."
+      suggestionsFrom: "table-columns",
+      help: "Add visible column names or normalized ids to group by. Leave empty to summarize all rows together."
     },
     {
       id: "valueColumns",
-      type: "text",
+      type: "value-list",
       label: "Value columns",
+      addLabel: "+ Value column",
+      itemLabel: "value column",
+      itemPlaceholder: "Numeric column",
       defaultValue: "concentration_ng_ul, od260_280",
-      help: "Enter numeric value columns to summarize, separated by commas."
+      suggestionsFrom: "table-columns",
+      help: "Add numeric columns to summarize. Non-numeric non-missing values are ignored for numeric operations and reported as warnings."
     },
     {
       id: "operations",
@@ -83,7 +104,7 @@ export const tableGroupSummaryMetadata = {
           label: "Format",
           defaultValue: "summary-tsv",
           choices: [
-            { value: "summary-tsv", label: "Summary TSV" },
+            { value: "summary-tsv", label: "Summary table" },
             { value: "report", label: "Summary report" }
           ]
         }

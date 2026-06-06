@@ -1,10 +1,12 @@
 import { fastaHeaderRenameTableColumns } from "../../core/fasta-header-rename.js";
+import { WHOLE_FASTA_SCAN_NOTE } from "../fasta-input-policy.js";
+import { makeFastaSourceInputOptions } from "../fasta-source-options.js";
 
 export const fastaHeaderRenameMetadata = {
   id: "fasta-header-rename",
   name: "FASTA Header Rename",
-  category: "Prepare Sequences",
-  tags: ["DNA", "RNA", "protein", "FASTA", "cleaning", "workflow"],
+  category: "FASTA",
+  tags: ["DNA", "RNA", "protein", "FASTA", "cleaning"],
   summary: "Rename FASTA headers with prefix/suffix rules, find-and-replace, safe-ID cleanup, and optional numbering.",
   inputType: "FASTA records",
   outputType: "Renamed FASTA, report, table",
@@ -26,12 +28,55 @@ export const fastaHeaderRenameMetadata = {
   workerModule: "../tools/fasta-header-rename/run.js",
   workerExport: "runFastaHeaderRename",
   options: [
-    { id: "findText", type: "text", label: "Find text or regex", defaultValue: "" },
-    { id: "replaceText", type: "text", label: "Replace with", defaultValue: "" },
-    { id: "useRegex", type: "checkbox", label: "Use regular expression", defaultValue: false },
+    ...makeFastaSourceInputOptions(),
+    {
+      type: "group",
+      label: "Header text replacement",
+      options: [
+        {
+          id: "findText",
+          type: "text",
+          label: "Find in header",
+          defaultValue: "",
+          help: "Leave blank to skip text replacement and only apply prefix, suffix, numbering, or safe-ID cleanup."
+        },
+        {
+          id: "replaceText",
+          type: "text",
+          label: "Replace with",
+          defaultValue: "",
+          help: "Leave blank to delete the matched text. In regular expression mode, capture groups such as $1 can be used."
+        },
+        {
+          id: "findMode",
+          type: "radio",
+          label: "Match type",
+          defaultValue: "plain",
+          help: "Plain text is safest for routine header edits. Use regular expression only when you need pattern matching.",
+          choices: [
+            { value: "plain", label: "Plain text" },
+            { value: "regex", label: "Regular expression" }
+          ]
+        },
+        {
+          id: "regexFlags",
+          type: "text",
+          label: "Regular expression flags",
+          defaultValue: "g",
+          visibleWhen: { option: "findMode", value: "regex" },
+          help: "Advanced JavaScript flags. Use g to replace every match and i for case-insensitive matching. Do not include slash delimiters."
+        },
+        {
+          id: "regexHelpNote",
+          type: "note",
+          visibleWhen: { option: "findMode", value: "regex" },
+          text: "Enter only the pattern, not /pattern/flags. Capture groups can be reused in the replacement text, for example $1."
+        }
+      ]
+    },
     { id: "prefix", type: "text", label: "Add prefix", defaultValue: "" },
     { id: "suffix", type: "text", label: "Add suffix", defaultValue: "" },
-    { id: "safeIds", type: "checkbox", label: "Make safe IDs", defaultValue: true, help: "Replaces spaces and unusual punctuation with underscores so headers are easier to use in scripts." },
+    { id: "safeIds", type: "checkbox", label: "Clean headers into safe IDs", defaultValue: true, help: "Replaces spaces and unusual punctuation with underscores so headers are easier to use in scripts." },
     {
       id: "numberMode",
       type: "radio",
@@ -43,9 +88,8 @@ export const fastaHeaderRenameMetadata = {
         { value: "suffix", label: "Number suffix" }
       ]
     },
-    { id: "numberStart", type: "number", label: "First number", defaultValue: 1, min: 0, step: 1 },
-    { id: "numberWidth", type: "number", label: "Number width", defaultValue: 3, min: 1, max: 12, step: 1 },
-    { id: "lineWidth", type: "number", label: "Characters per FASTA line", defaultValue: 60, min: 10, max: 200 },
+    { id: "numberStart", type: "number", label: "First number", defaultValue: 1, min: 0, step: 1, visibleWhen: { option: "numberMode", value: ["prefix", "suffix"] } },
+    { id: "numberWidth", type: "number", label: "Number width", defaultValue: 3, min: 1, max: 12, step: 1, visibleWhen: { option: "numberMode", value: ["prefix", "suffix"] } },
     {
       type: "group",
       label: "Output format",
@@ -62,6 +106,11 @@ export const fastaHeaderRenameMetadata = {
           ]
         }
       ]
+    },
+    {
+      id: "compressedInputNote",
+      type: "note",
+      text: WHOLE_FASTA_SCAN_NOTE
     }
   ]
 };

@@ -1,7 +1,9 @@
 import { parseSequenceInput } from "../../core/fasta.js";
 import { findPatternMatches, makePatternRegex } from "../../core/pattern.js";
 import { cleanProteinSequence, makeSequenceContext } from "../../core/sequence.js";
-import { renderTextAnnotationMap } from "../../core/text-annotation-map.js";
+import { makeProteinViewerData, makeProteinViewerStream } from "../../core/protein-viewer-data.js";
+import { renderSequenceMap } from "../../core/sequence-map-renderer.js";
+import { renderTextAnnotationMapFromItems } from "../../core/text-annotation-map.js";
 import { makeTableStream, makeTextStream, makeToolResult } from "../../core/workflow.js";
 
 export const proteinPatternFinderTableColumns = [
@@ -16,6 +18,9 @@ export const proteinPatternFinderTableColumns = [
   { id: "context_sequence", label: "Context sequence", type: "string" }
 ];
 const TSV_COLUMNS = proteinPatternFinderTableColumns.map((column) => column.id);
+const DETAILED_REPORT_MATCH_THRESHOLD = 2000;
+const MATCHED_REGION_RECORD_THRESHOLD = 5000;
+const SVG_MAP_MATCH_THRESHOLD = 5000;
 
 function makeRows(records) {
   return records.flatMap((record) =>
@@ -30,15 +35,22 @@ function makeRows(records) {
   );
 }
 
-function makeMatchedRegionRecords(records) {
+function makeMatchedRegionRecords(records, maxRecords = Number.POSITIVE_INFINITY) {
+  let remaining = maxRecords;
   return records.flatMap((record) =>
-    record.matches.map((match, index) => ({
-      title: `${record.title} match ${index + 1} ${match.start}-${match.end}`,
-      sequence: match.matchedText,
-      sourceTitle: record.title,
-      start: match.start,
-      end: match.end
-    }))
+    record.matches.flatMap((match, index) => {
+      if (remaining <= 0) {
+        return [];
+      }
+      remaining -= 1;
+      return [{
+        title: `${record.title} match ${index + 1} ${match.start}-${match.end}`,
+        sequence: match.matchedText,
+        sourceTitle: record.title,
+        start: match.start,
+        end: match.end
+      }];
+    })
   );
 }
 
@@ -72,6 +84,25 @@ function makeReport(records, pattern, options = {}) {
   return lines.join("\n").trimEnd();
 }
 
+function makeSummaryReport(records, pattern, options = {}) {
+  const lines = [];
+  const mode = options.patternMode === "regex" ? "regex" : options.patternMode === "iupac" ? "IUPAC motif" : "plain text";
+
+  lines.push("Protein pattern finder");
+  lines.push(`Pattern: ${pattern}`);
+  lines.push(`Pattern mode: ${mode}`);
+  lines.push(`Overlapping matches: ${options.allowOverlaps !== false ? "yes" : "no"}`);
+  lines.push("");
+  for (const record of records) {
+    lines.push(`${record.title} pattern matches`);
+    lines.push(`Length: ${record.cleanedLength}`);
+    lines.push(`Matches: ${record.matches.length}`);
+    lines.push("");
+  }
+  lines.push(`Total matches: ${records.reduce((sum, record) => sum + record.matches.length, 0)}`);
+  return lines.join("\n").trimEnd();
+}
+
 function makeTsv(rows) {
   return [
     TSV_COLUMNS.join("\t"),
@@ -92,23 +123,99 @@ function makeTsv(rows) {
 }
 
 function makeTextMap(records) {
-  return renderTextAnnotationMap(records.map((record) => ({
+  return renderTextAnnotationMapFromItems(records.map((record) => ({
     title: record.title,
     sequence: record.sequence,
-    annotations: record.matches.map((match, index) => ({
-      start: match.start,
-      end: match.end,
-      label: `m${index + 1}`
-    }))
+    items: record.matches
   })), {
-    width: 60
+    width: 60,
+    alphabet: "protein",
+    labelPrefix: "m",
+    includeStrand: false
   });
 }
 
-export function runProteinPatternFinder(input, options = {}) {
+function makePatternLegendLabel(pattern, maxLength = 56) {
+  const normalizedPattern = String(pattern ?? "").replace(/\s+/g, " ").trim();
+  const displayPattern =
+    normalizedPattern.length > maxLength ? `${normalizedPattern.slice(0, maxLength - 3)}...` : normalizedPattern;
+  return `${displayPattern || "Pattern"} match`;
+}
+
+function makeSvgMap(records, pattern, maxMatches = SVG_MAP_MATCH_THRESHOLD) {
+  let remaining = maxMatches;
+  const mapRecords = records.map((record) => {
+    const features = [];
+    for (const match of record.matches) {
+      if (remaining <= 0) {
+        break;
+      }
+      remaining -= 1;
+      features.push({
+        start: match.start,
+        end: match.end,
+        label: "match",
+        className: "variant"
+      });
+    }
+    return {
+      title: record.title,
+      length: record.cleanedLength,
+      topology: "linear",
+      molecule: "protein",
+      features
+    };
+  });
+  return renderSequenceMap({
+    title: "Protein pattern match map",
+    records: mapRecords,
+    styles: {
+      variant: { label: makePatternLegendLabel(pattern), fill: "#7c3aed", stroke: "#6d28d9" }
+    }
+  });
+}
+
+function makeProteinPatternViewerData(records, pattern) {
+  const label = makePatternLegendLabel(pattern, 36);
+  return makeProteinViewerData(records.map((record) => ({
+    title: record.title,
+    sequence: record.sequence,
+    length: record.cleanedLength,
+    tracks: record.matches.length > 0
+      ? [
+          {
+            id: "pattern-matches",
+            type: "features",
+            label: "Pattern matches",
+            layout: "stacked-intervals",
+            featureOpacity: 0.72,
+            items: record.matches.map((match, index) => ({
+              start: match.start,
+              end: match.end,
+              length: match.length,
+              label: `m${index + 1}`,
+              name: label,
+              type: "pattern match",
+              matchedText: match.matchedText
+            }))
+          }
+        ]
+      : []
+  })), {
+    title: "Protein pattern viewer"
+  });
+}
+
+function looksLikeSlashDelimitedRegex(pattern) {
+  return /^\/.*\/[a-z]*$/i.test(String(pattern ?? ""));
+}
+
+export function runProteinPatternFinder(input, options = {}, context = {}) {
+  context.reportProgress?.({ phase: "parsing-input", progress: 0.05 });
   const records = parseSequenceInput(input, "sequence");
   const warnings = [];
   const pattern = String(options.pattern ?? "").trim();
+  const searchOptions = { ...options, keepGaps: false };
 
   if (!pattern) {
     return makeToolResult({
@@ -121,7 +228,7 @@ export function runProteinPatternFinder(input, options = {}) {
   }
 
   try {
-    makePatternRegex(pattern, { ...options, alphabet: "protein" });
+    makePatternRegex(pattern, { ...searchOptions, alphabet: "protein" });
   } catch (error) {
     return makeToolResult({
       output: "",
@@ -130,6 +237,12 @@ export function runProteinPatternFinder(input, options = {}) {
       basesProcessed: 0,
       charactersRemoved: 0
     });
+  }
+
+  if (options.patternMode === "regex" && looksLikeSlashDelimitedRegex(pattern)) {
+    warnings.push(
+      "Regex mode expects a JavaScript regex source without slash delimiters; use K.D instead of /K.D/i and the case-insensitive checkbox for the i flag."
+    );
   }
 
   if (records.length === 0) {
@@ -146,10 +259,17 @@ export function runProteinPatternFinder(input, options = {}) {
   let basesProcessed = 0;
   let charactersRemoved = 0;
 
-  for (const record of records) {
+  records.forEach((record, recordIndex) => {
+    context.throwIfCancelled?.();
+    context.reportProgress?.({
+      phase: "scanning",
+      progress: 0.1 + (recordIndex / Math.max(1, records.length)) * 0.75,
+      recordsProcessed: recordIndex,
+      totalRecords: records.length
+    });
     const cleaned = cleanProteinSequence(record.sequence, {
       preserveCase: false,
-      keepGaps: options.keepGaps !== false
+      keepGaps: false
     });
     basesProcessed += cleaned.sequence.length;
     charactersRemoved += cleaned.removedCount;
@@ -164,8 +284,11 @@ export function runProteinPatternFinder(input, options = {}) {
 
     let matches = [];
     try {
-      matches = findPatternMatches(cleaned.sequence, pattern, { ...options, alphabet: "protein" });
+      matches = findPatternMatches(cleaned.sequence, pattern, { ...searchOptions, alphabet: "protein" }, context);
     } catch (error) {
+      if (error?.name === "AbortError") {
+        throw error;
+      }
       warnings.push(`${record.title}: ${error.message}`);
     }
 
@@ -175,31 +298,68 @@ export function runProteinPatternFinder(input, options = {}) {
       sequence: cleaned.sequence,
       matches
     });
-  }
+  });
 
+  context.throwIfCancelled?.();
+  context.reportProgress?.({ phase: "building-output", progress: 0.9 });
+  const outputFormat = ["tsv", "text-map", "svg-map", "interactive-viewer"].includes(options.outputFormat) ? options.outputFormat : "report";
+  const totalMatches = analyzedRecords.reduce((sum, record) => sum + record.matches.length, 0);
+  if (totalMatches > MATCHED_REGION_RECORD_THRESHOLD) {
+    warnings.push(
+      `Matched-region sequence stream was capped at ${MATCHED_REGION_RECORD_THRESHOLD} of ${totalMatches} matches to avoid duplicating a very large hit set. Use the table output for all coordinates.`
+    );
+  }
+  if (outputFormat === "report" && totalMatches > DETAILED_REPORT_MATCH_THRESHOLD) {
+    warnings.push(
+      `Detailed report rows were summarized because this run found ${totalMatches} matches. Use table output for the full hit table.`
+    );
+  }
+  if (outputFormat === "svg-map" && totalMatches > SVG_MAP_MATCH_THRESHOLD) {
+    warnings.push(
+      `Linear pattern map was capped at ${SVG_MAP_MATCH_THRESHOLD} of ${totalMatches} matches to keep the browser responsive. Use table output for all coordinates.`
+    );
+  }
   const tableRows = makeRows(analyzedRecords);
-  const matchedRegions = makeMatchedRegionRecords(analyzedRecords);
-  const reportOutput = makeReport(analyzedRecords, pattern, options);
-  const outputFormat = options.outputFormat === "tsv" || options.outputFormat === "text-map" ? options.outputFormat : "report";
+  const matchedRegions = makeMatchedRegionRecords(analyzedRecords, MATCHED_REGION_RECORD_THRESHOLD);
+  const reportOutput = outputFormat === "report" && totalMatches > DETAILED_REPORT_MATCH_THRESHOLD
+    ? makeSummaryReport(analyzedRecords, pattern, options)
+    : makeReport(analyzedRecords, pattern, options);
   const textMap = outputFormat === "text-map" ? makeTextMap(analyzedRecords) : "";
-  const output = outputFormat === "tsv" ? makeTsv(tableRows) : outputFormat === "text-map" ? textMap : reportOutput;
+  const svgMap = outputFormat === "svg-map" ? makeSvgMap(analyzedRecords, pattern) : "";
+  const viewer = outputFormat === "interactive-viewer" ? makeProteinPatternViewerData(analyzedRecords, pattern) : null;
+  const output = outputFormat === "tsv"
+    ? makeTsv(tableRows)
+    : outputFormat === "text-map"
+      ? textMap
+      : outputFormat === "svg-map"
+        ? svgMap
+        : viewer
+          ? JSON.stringify(viewer, null, 2)
+          : reportOutput;
 
   return makeToolResult({
     output,
     download: {
-      filename: `protein-pattern-finder.${outputFormat === "tsv" ? "tsv" : "txt"}`,
+      filename: `protein-pattern-finder.${outputFormat === "tsv" ? "tsv" : outputFormat === "svg-map" ? "svg" : viewer ? "json" : "txt"}`,
       mimeType:
         outputFormat === "tsv"
           ? "text/tab-separated-values"
-          : "text/plain;charset=utf-8"
+          : outputFormat === "svg-map"
+            ? "image/svg+xml;charset=utf-8"
+            : viewer
+              ? "application/json;charset=utf-8"
+              : "text/plain;charset=utf-8"
     },
     warnings,
     recordsProcessed: records.length,
     basesProcessed,
+    processedUnitLabel: "residue",
     charactersRemoved,
     streams: {
       report: makeTextStream(reportOutput, "text/plain"),
       ...(outputFormat === "text-map" ? { textMap: makeTextStream(textMap, "text/plain") } : {}),
+      ...(outputFormat === "svg-map" ? { overview: makeTextStream(svgMap, "image/svg+xml") } : {}),
+      ...(viewer ? { viewer: makeProteinViewerStream(viewer) } : {}),
       table: makeTableStream(proteinPatternFinderTableColumns, tableRows, "protein-pattern-finder"),
       matchedRegions: {
         kind: "sequence-records",
@@ -207,6 +367,20 @@ export function runProteinPatternFinder(input, options = {}) {
         alphabet: "protein",
         records: matchedRegions
       }
-    }
+    },
+    visual: outputFormat === "svg-map"
+      ? { svg: svgMap }
+      : viewer
+        ? { viewer }
+        : undefined
   });
+}
+
+export async function runProteinPatternFinderWorker(input, options = {}, context = {}) {
+  context.reportProgress?.({ phase: "started", progress: 0 });
+  await context.yieldIfNeeded?.();
+  const result = runProteinPatternFinder(input, options, context);
+  await context.yieldIfNeeded?.();
+  context.reportProgress?.({ phase: "finished", progress: 1 });
+  return result;
 }

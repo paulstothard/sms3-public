@@ -5,6 +5,8 @@ export const workflowStreamKinds = [
   "orf-records",
   "stats-records",
   "text-records",
+  "viewer",
+  "figure",
   "warnings"
 ];
 

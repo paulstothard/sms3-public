@@ -3,12 +3,13 @@ import {
   fastaTableColumns,
   makeFastaTableTsv
 } from "../../core/fasta-table-converter.js";
+import { resolveFastaSourceInput } from "../fasta-source-runner.js";
 import { makeTableStream, makeTextStream, makeToolResult } from "../../core/workflow.js";
 
-const OUTPUT_FORMATS = new Set(["table-tsv", "fasta", "report"]);
+const OUTPUT_FORMATS = new Set(["auto", "table-tsv", "fasta", "report"]);
 
-function normalizeOutputFormat(value) {
-  return OUTPUT_FORMATS.has(value) ? value : "table-tsv";
+function normalizeOutputFormat(value, fallback = "auto") {
+  return OUTPUT_FORMATS.has(value) ? value : fallback;
 }
 
 export async function runFastaTableConverter(input, options = {}, context = {}) {
@@ -16,13 +17,22 @@ export async function runFastaTableConverter(input, options = {}, context = {}) 
   context.throwIfCancelled?.();
   await context.yieldIfNeeded?.();
 
-  const result = convertFastaTable(input, options);
+  const resolvedInput = options.mode === "fasta-to-table"
+    ? await resolveFastaSourceInput(input, options, context)
+    : { input, warnings: [] };
+  const result = convertFastaTable(resolvedInput.input, options);
+  if (resolvedInput.warnings.length) {
+    result.warnings.unshift(...resolvedInput.warnings);
+  }
 
   context.reportProgress?.({ phase: "building-output", progress: 0.75 });
   context.throwIfCancelled?.();
   await context.yieldIfNeeded?.();
 
-  const outputFormat = normalizeOutputFormat(options.outputFormat);
+  const requestedOutputFormat = normalizeOutputFormat(options.outputFormat);
+  const outputFormat = requestedOutputFormat === "auto"
+    ? result.mode === "fasta-to-table" ? "table-tsv" : "fasta"
+    : requestedOutputFormat;
   const tsv = makeFastaTableTsv(result.tableRows);
   const outputs = {
     "table-tsv": tsv,
@@ -52,4 +62,20 @@ export async function runFastaTableConverter(input, options = {}, context = {}) 
       }
     }
   });
+}
+
+export async function runFastaToTable(input, options = {}, context = {}) {
+  return runFastaTableConverter(input, {
+    ...options,
+    mode: "fasta-to-table",
+    outputFormat: normalizeOutputFormat(options.outputFormat, "table-tsv")
+  }, context);
+}
+
+export async function runTableToFasta(input, options = {}, context = {}) {
+  return runFastaTableConverter(input, {
+    ...options,
+    mode: "table-to-fasta",
+    outputFormat: normalizeOutputFormat(options.outputFormat, "fasta")
+  }, context);
 }

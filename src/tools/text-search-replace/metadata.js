@@ -3,11 +3,14 @@ import { textSearchMatchColumns } from "../../core/text-search-replace.js";
 export const textSearchReplaceMetadata = {
   id: "text-search-replace",
   name: "Text Search / Replace",
-  category: "Edit Text",
-  tags: ["table", "text", "regex", "search", "workflow"],
+  category: "Text & Notes",
+  tags: ["table", "text", "regex", "search"],
   summary: "Search plain text or regular expressions, replace matches, extract matches, or remove matching lines.",
   inputType: "Plain text",
   outputType: "Transformed text, match table, report",
+  runInWorker: true,
+  workerModule: "../tools/text-search-replace/run.js",
+  workerExport: "runTextSearchReplace",
   workflow: {
     inputs: [{ id: "input", kind: "text", mediaType: "text/plain" }],
     outputs: [
@@ -21,40 +24,47 @@ export const textSearchReplaceMetadata = {
   options: [
     {
       type: "group",
-      label: "Search",
-      help: "Controls how SMS3 finds matching text.",
+      label: "Match settings",
+      help: "Choose whether the pattern is literal text or JavaScript regular-expression syntax.",
       options: [
-        {
-          id: "pattern",
-          type: "text",
-          label: "Find",
-          help: "Text or regular expression to search for.",
-          defaultValue: "sample_\\d+"
-        },
         {
           id: "searchMode",
           type: "radio",
-          label: "Search mode",
-          help: "Plain text searches literal characters. JavaScript regex treats Find as a regular expression.",
+          label: "Pattern type",
+          help: "Plain text searches literal characters. JavaScript regex treats the pattern as a regular-expression source, without slash delimiters such as /sample_\\d+/i. See the JavaScript regex reference page for syntax and supported flags.",
           defaultValue: "regex",
           choices: [
             { value: "plain", label: "Plain text" },
             { value: "regex", label: "JavaScript regex" }
           ]
         },
-        { id: "caseSensitive", type: "checkbox", label: "Case-sensitive search", defaultValue: false, help: "When off, uppercase and lowercase letters are treated as equivalent." },
-        { id: "multiline", type: "checkbox", label: "Regex multiline anchors", defaultValue: true, help: "In regex mode, makes ^ and $ match the start and end of each line." }
+        {
+          id: "pattern",
+          type: "text",
+          label: "Pattern to find",
+          help: "Text or regular expression to search for.",
+          defaultValue: "sample_(\\d+)"
+        },
+        { id: "caseSensitive", type: "checkbox", label: "Case-sensitive search", defaultValue: false, help: "When off, uppercase and lowercase letters are treated as equivalent. In regex mode this controls JavaScript i-flag behavior." },
+        {
+          id: "multiline",
+          type: "checkbox",
+          label: "Regex multiline anchors",
+          defaultValue: true,
+          visibleWhen: { option: "searchMode", value: "regex" },
+          help: "Makes ^ and $ match the start and end of each line. This controls JavaScript m-flag behavior."
+        }
       ]
     },
     {
       type: "group",
-      label: "Action",
-      help: "Controls what happens after matches are found.",
+      label: "Action on matches",
+      help: "Choose the result to produce from the matched text.",
       options: [
         {
           id: "operation",
           type: "select",
-          label: "Operation",
+          label: "Action",
           defaultValue: "replace",
           choices: [
             { value: "replace", label: "Replace all matches" },
@@ -67,20 +77,20 @@ export const textSearchReplaceMetadata = {
           type: "text",
           label: "Replace with",
           help: "Replacement text. In regex mode, JavaScript replacement tokens such as $1 can refer to capture groups.",
-          defaultValue: "ID",
+          defaultValue: "SRR$1",
           visibleWhen: { option: "operation", value: "replace" }
         },
         {
           id: "joinMode",
           type: "select",
-          label: "Extracted match output",
-          help: "Only used when Operation is Extract matches only. Choose whether extracted matches are returned one per line, comma-separated, or tab-separated.",
+          label: "Return extracted matches as",
+          help: "Only used when the action is Extract matches only.",
           defaultValue: "lines",
           visibleWhen: { option: "operation", value: "extract" },
           choices: [
-            { value: "lines", label: "Lines" },
-            { value: "comma", label: "Comma + space" },
-            { value: "tab", label: "Tabs" }
+            { value: "lines", label: "One match per line" },
+            { value: "comma", label: "Comma-separated text" },
+            { value: "tab", label: "Tab-separated text" }
           ]
         }
       ]

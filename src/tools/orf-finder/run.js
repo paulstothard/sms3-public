@@ -1,5 +1,6 @@
 import { formatFastaRecord, parseSequenceInput } from "../../core/fasta.js";
 import { getGeneticCode, getStartCodons, getStopCodons, makeCodonMap } from "../../core/genetic-code.js";
+import { makeDnaViewerData, makeDnaViewerStream } from "../../core/dna-viewer-data.js";
 import { cleanDnaRnaSequence, complementDnaRnaSequence } from "../../core/sequence.js";
 import { makeTableStream, makeTextStream, makeToolResult } from "../../core/workflow.js";
 
@@ -18,6 +19,14 @@ const REVERSE_FRAMES = [
   { label: "-2", strand: "-", offset: 1 },
   { label: "-3", strand: "-", offset: 2 }
 ];
+const FRAME_SLOT = new Map([
+  ["+1", 0],
+  ["+2", 1],
+  ["+3", 2],
+  ["-1", 3],
+  ["-2", 4],
+  ["-3", 5]
+]);
 export const orfTableColumns = [
   { id: "record", label: "Record", type: "string" },
   { id: "orf", label: "ORF", type: "number" },
@@ -504,10 +513,112 @@ function escapeXml(value) {
     .replaceAll('"', "&quot;");
 }
 
+function niceStep(span, target = 7) {
+  const rough = Math.max(1, span / target);
+  const power = Math.pow(10, Math.floor(Math.log10(rough)));
+  const scaled = rough / power;
+  return (scaled <= 1 ? 1 : scaled <= 2 ? 2 : scaled <= 5 ? 5 : 10) * power;
+}
+
+function minorStepForMajor(majorStep) {
+  if (!Number.isFinite(majorStep) || majorStep <= 1) return 0;
+  const power = Math.pow(10, Math.floor(Math.log10(majorStep)));
+  const scaled = Math.round(majorStep / power);
+  const divisor = scaled === 2 ? 4 : 5;
+  return Math.max(1, Math.round(majorStep / divisor));
+}
+
+export function getOrfOverviewPositionUnit(recordLength) {
+  if (recordLength >= 1000000000) return { unit: "Gb", scale: 1000000000 };
+  if (recordLength >= 1000000) return { unit: "Mb", scale: 1000000 };
+  if (recordLength >= 10000) return { unit: "kb", scale: 1000 };
+  return { unit: "bp", scale: 1 };
+}
+
+export function formatOrfOverviewPositionLabel(position, recordLength) {
+  const safePosition = Math.max(1, Math.round(Number(position) || 1));
+  if (safePosition <= 1) return "1 bp";
+  const { unit, scale } = getOrfOverviewPositionUnit(recordLength);
+  if (scale === 1) return `${safePosition.toLocaleString()} bp`;
+  const value = safePosition / scale;
+  const decimals = safePosition % scale === 0 ? 0 : value < 10 ? 2 : value < 100 ? 1 : 0;
+  return `${Number(value.toFixed(decimals)).toLocaleString()} ${unit}`;
+}
+
+function makeOverviewRulerTicks(sequenceLength, plotWidth) {
+  const length = Math.max(1, Math.round(Number(sequenceLength) || 1));
+  const targetTickCount = Math.max(3, Math.min(9, Math.round(plotWidth / 130)));
+  const majorStep = niceStep(Math.max(1, length - 1), targetTickCount);
+  const minorStep = minorStepForMajor(majorStep);
+  const majorTicks = [1];
+  const majorSeen = new Set(majorTicks);
+  const addMajor = (position) => {
+    const rounded = Math.max(1, Math.min(length, Math.round(position)));
+    if (!majorSeen.has(rounded)) {
+      majorSeen.add(rounded);
+      majorTicks.push(rounded);
+    }
+  };
+  for (let position = Math.max(majorStep, Math.ceil(2 / majorStep) * majorStep); position < length; position += majorStep) {
+    if (length - position < majorStep * 0.45) continue;
+    addMajor(position);
+  }
+  if (length > 1) addMajor(length);
+
+  const minorTicks = [];
+  if (minorStep > 0) {
+    for (let position = Math.max(minorStep, Math.ceil(2 / minorStep) * minorStep); position < length; position += minorStep) {
+      const rounded = Math.round(position);
+      if (majorSeen.has(rounded)) continue;
+      minorTicks.push(rounded);
+    }
+  }
+
+  return {
+    majorTicks: majorTicks.sort((left, right) => left - right),
+    minorTicks,
+    majorStep,
+    minorStep
+  };
+}
+
+function positionToRulerX(position, sequenceLength, left, plotWidth) {
+  const length = Math.max(1, Number(sequenceLength) || 1);
+  if (length <= 1) return left;
+  return left + ((Math.max(1, Math.min(length, position)) - 1) / (length - 1)) * plotWidth;
+}
+
+function intervalStartToX(position, sequenceLength, left, plotWidth) {
+  const length = Math.max(1, Number(sequenceLength) || 1);
+  return left + ((Math.max(1, Math.min(length, position)) - 1) / length) * plotWidth;
+}
+
+function intervalEndToX(position, sequenceLength, left, plotWidth) {
+  const length = Math.max(1, Number(sequenceLength) || 1);
+  return left + (Math.max(1, Math.min(length, position)) / length) * plotWidth;
+}
+
+function appendOverviewRuler(parts, { y, left, rightX, plotWidth, sequenceLength }) {
+  const { majorTicks, minorTicks } = makeOverviewRulerTicks(sequenceLength, plotWidth);
+  const length = Math.max(1, Math.round(Number(sequenceLength) || 1));
+  parts.push(`<line class="axis" x1="${left}" y1="${y}" x2="${rightX}" y2="${y}"></line>`);
+
+  for (const tick of minorTicks) {
+    const x = positionToRulerX(tick, length, left, plotWidth);
+    parts.push(`<line class="axis-minor-tick" x1="${x.toFixed(2)}" y1="${y - 4}" x2="${x.toFixed(2)}" y2="${y + 4}"></line>`);
+  }
+
+  for (const tick of majorTicks) {
+    const x = positionToRulerX(tick, length, left, plotWidth);
+    parts.push(`<line class="axis-tick" x1="${x.toFixed(2)}" y1="${y - 7}" x2="${x.toFixed(2)}" y2="${y + 7}"></line>`);
+    parts.push(`<text class="axis-label" x="${x.toFixed(2)}" y="${y + 18}" text-anchor="middle">${escapeXml(formatOrfOverviewPositionLabel(tick, length))}</text>`);
+  }
+}
+
 function makeSvgOverview(records) {
   const width = 980;
   const left = 90;
-  const right = 24;
+  const right = 64;
   const laneHeight = 26;
   const recordGap = 36;
   const titleHeight = 28;
@@ -516,11 +627,11 @@ function makeSvgOverview(records) {
   let y = 24;
   const parts = [
     `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} 1" role="img" aria-label="ORF overview">`,
-    "<style>text{font-family:Inter,Arial,sans-serif;font-size:12px;fill:#172026}.axis{stroke:#cfd8df}.complete{fill:#0f766e}.partial{fill:#b7791f}.lane{stroke:#eef2f5;stroke-width:8;stroke-linecap:round}</style>"
+    "<style>text{font-family:Inter,Arial,sans-serif;font-size:12px;fill:#172026}.axis{stroke:#475569;stroke-width:1.4}.axis-tick{stroke:#475569;stroke-width:1}.axis-minor-tick{stroke:#94a3b8;stroke-width:.75}.axis-label{font-size:11px;fill:#475569}.complete{fill:#0f766e}.partial{fill:#b7791f}.lane{stroke:#eef2f5;stroke-width:8;stroke-linecap:round}</style>"
   ];
 
   for (const record of records) {
-    const maxEnd = Math.max(1, ...record.orfs.map((orf) => orf.end));
+    const sequenceLength = Math.max(1, record.sequence.length, ...record.orfs.map((orf) => orf.end));
     parts.push(`<text x="16" y="${y}">${escapeXml(record.title)} (${record.orfs.length} ORFs)</text>`);
     y += titleHeight;
 
@@ -530,8 +641,9 @@ function makeSvgOverview(records) {
       parts.push(`<line class="lane" x1="${left}" y1="${laneY}" x2="${width - right}" y2="${laneY}"></line>`);
 
       for (const orf of record.orfs.filter((item) => item.frame === frame)) {
-        const x = left + ((orf.start - 1) / maxEnd) * plotWidth;
-        const rectWidth = Math.max(2, ((orf.end - orf.start + 1) / maxEnd) * plotWidth);
+        const x = intervalStartToX(orf.start, sequenceLength, left, plotWidth);
+        const x2 = intervalEndToX(orf.end, sequenceLength, left, plotWidth);
+        const rectWidth = Math.max(2, x2 - x);
         const className = orf.complete ? "complete" : "partial";
         parts.push(
           `<rect class="${className}" x="${x.toFixed(2)}" y="${laneY - 6}" width="${rectWidth.toFixed(2)}" height="12" rx="2"><title>${escapeXml(`${record.title} ${orf.frame} ${orf.start}-${orf.end} ${orf.aaLength} aa ${orf.complete ? "complete" : "partial"}`)}</title></rect>`
@@ -541,9 +653,13 @@ function makeSvgOverview(records) {
       y += laneHeight;
     }
 
-    parts.push(`<line class="axis" x1="${left}" y1="${y}" x2="${width - right}" y2="${y}"></line>`);
-    parts.push(`<text x="${left}" y="${y + 16}">1</text>`);
-    parts.push(`<text x="${width - right - 36}" y="${y + 16}">${maxEnd}</text>`);
+    appendOverviewRuler(parts, {
+      y,
+      left,
+      rightX: width - right,
+      plotWidth,
+      sequenceLength
+    });
     y += recordGap;
   }
 
@@ -607,6 +723,9 @@ function getDownloadExtension(outputFormat) {
   if (outputFormat === "svg-overview") {
     return "svg";
   }
+  if (isInteractiveViewerFormat(outputFormat)) {
+    return "json";
+  }
   return "txt";
 }
 
@@ -620,12 +739,54 @@ function getMimeType(outputFormat) {
   if (outputFormat === "nucleotide-fasta" || outputFormat === "protein-fasta") {
     return "text/x-fasta;charset=utf-8";
   }
+  if (isInteractiveViewerFormat(outputFormat)) {
+    return "application/json;charset=utf-8";
+  }
   return "text/plain;charset=utf-8";
 }
 
+function isInteractiveViewerFormat(outputFormat) {
+  return outputFormat === "interactive-viewer" || outputFormat === "interactive-circular-viewer";
+}
+
 function normalizeOutputFormat(outputFormat) {
-  const outputFormats = new Set(["report", "tsv", "nucleotide-fasta", "protein-fasta", "svg-overview"]);
+  const outputFormats = new Set(["report", "tsv", "nucleotide-fasta", "protein-fasta", "svg-overview", "interactive-viewer", "interactive-circular-viewer"]);
   return outputFormats.has(outputFormat) ? outputFormat : "report";
+}
+
+function makeOrfViewerData(records, options = {}) {
+  return makeDnaViewerData(records.map((record) => ({
+    title: record.title,
+    sequence: record.sequence,
+    length: record.sequence.length,
+    topology: options.outputFormat === "interactive-circular-viewer" ? "circular" : "linear",
+    tracks: record.orfs.length > 0
+      ? [
+          {
+            id: "orfs",
+            type: "features",
+            label: "ORFs",
+            layout: "stacked-intervals",
+            items: record.orfs.map((orf, index) => ({
+              start: orf.start,
+              end: orf.end,
+              length: orf.ntLength,
+              label: `ORF ${index + 1} ${orf.frame} ${orf.aaLength} aa`,
+              name: `ORF ${index + 1}`,
+              type: orf.complete ? "complete ORF" : "partial ORF",
+              color: orf.complete ? "#0f766e" : "#b7791f",
+              strand: orf.strand,
+              frame: orf.frame,
+              slot: FRAME_SLOT.get(orf.frame) ?? 0
+            }))
+          }
+        ]
+      : []
+  })), {
+    title: "ORF viewer",
+    geneticCode: String(options.geneticCode ?? "1"),
+    layout: options.outputFormat === "interactive-circular-viewer" ? "circular" : "linear"
+  });
 }
 
 function makeOrfFinderResult({ analyzedRecords, warnings, recordsProcessed, basesProcessed, charactersRemoved, options }) {
@@ -634,7 +795,7 @@ function makeOrfFinderResult({ analyzedRecords, warnings, recordsProcessed, base
   const useSummaryReport = totalOrfs > LARGE_TEXT_ORF_THRESHOLD;
   if (useSummaryReport && outputFormat === "report") {
     warnings.push(
-      `Detailed ORF report rows were summarized because this run found ${totalOrfs} ORFs. Use TSV table output for the full hit table.`
+      `Detailed ORF report rows were summarized because this run found ${totalOrfs} ORFs. Use table output for the full hit table.`
     );
   }
   const reportOutput = useSummaryReport ? makeSummaryReport(analyzedRecords) : makeReport(analyzedRecords);
@@ -647,11 +808,12 @@ function makeOrfFinderResult({ analyzedRecords, warnings, recordsProcessed, base
     totalOrfs <= SVG_OVERVIEW_ORF_THRESHOLD &&
     basesProcessed <= SVG_OVERVIEW_BASE_THRESHOLD;
   let svgOverviewOutput = "";
+  const viewer = isInteractiveViewerFormat(outputFormat) ? makeOrfViewerData(analyzedRecords, options) : null;
   if (shouldDrawSvg) {
     svgOverviewOutput = makeSvgOverview(analyzedRecords);
   } else if (outputFormat === "svg-overview") {
     warnings.push(
-      `SVG ORF overview was not drawn because this run has ${totalOrfs} ORFs across ${basesProcessed} bases. Use table output or stricter ORF filters for dense analyses.`
+      `The ORF overview plot was not drawn because this run has ${totalOrfs} ORFs across ${basesProcessed} bases. Use table output or stricter ORF filters for dense analyses.`
     );
     svgOverviewOutput = makePlaceholderSvg("ORF overview not drawn", [
       `${totalOrfs} ORFs across ${basesProcessed} bases.`,
@@ -663,15 +825,21 @@ function makeOrfFinderResult({ analyzedRecords, warnings, recordsProcessed, base
     ? tsvOutput
     : outputFormat === "nucleotide-fasta"
       ? nucleotideFastaOutput
-      : outputFormat === "protein-fasta"
-        ? proteinFastaOutput
-        : outputFormat === "svg-overview"
-          ? svgOverviewOutput
+    : outputFormat === "protein-fasta"
+      ? proteinFastaOutput
+      : outputFormat === "svg-overview"
+        ? svgOverviewOutput
+        : isInteractiveViewerFormat(outputFormat)
+          ? JSON.stringify(viewer, null, 2)
           : reportOutput;
 
   return makeToolResult({
     output,
-    visual: outputFormat === "svg-overview" ? { svg: output } : undefined,
+    visual: outputFormat === "svg-overview"
+      ? { svg: output }
+      : isInteractiveViewerFormat(outputFormat)
+        ? { viewer }
+        : undefined,
     download: {
       filename: `orf-finder.${getDownloadExtension(outputFormat)}`,
       mimeType: getMimeType(outputFormat)
@@ -687,6 +855,7 @@ function makeOrfFinderResult({ analyzedRecords, warnings, recordsProcessed, base
       ...(outputFormat === "nucleotide-fasta" ? { nucleotideFasta: makeTextStream(nucleotideFastaOutput, "text/x-fasta") } : {}),
       ...(outputFormat === "protein-fasta" ? { proteinFasta: makeTextStream(proteinFastaOutput, "text/x-fasta") } : {}),
       ...(outputFormat === "svg-overview" ? { overview: makeTextStream(svgOverviewOutput, "image/svg+xml") } : {}),
+      ...(isInteractiveViewerFormat(outputFormat) ? { viewer: makeDnaViewerStream(viewer) } : {}),
       orfRecords: {
         kind: "orf-records",
         schema: "orf-finder",
@@ -734,6 +903,7 @@ export function runOrfFinder(input, options = {}) {
 
     analyzedRecords.push({
       title: record.title,
+      sequence: cleaned.sequence,
       orfs: findOrfs(cleaned.sequence, options)
     });
   }
@@ -789,6 +959,7 @@ export async function runOrfFinderWorker(input, options = {}, context = {}) {
     const orfs = await findOrfsWithContext(cleaned.sequence, options, context);
     analyzedRecords.push({
       title: record.title,
+      sequence: cleaned.sequence,
       orfs
     });
     context.reportProgress?.({

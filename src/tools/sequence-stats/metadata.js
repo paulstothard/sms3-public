@@ -3,10 +3,10 @@ import { sequenceStatsTableColumns } from "./table-columns.js";
 export const sequenceStatsDnaRnaMetadata = {
   id: "sequence-stats-dna-rna",
   name: "Sequence Stats DNA/RNA",
-  category: "Analyze DNA/RNA",
-  tags: ["DNA", "RNA", "IUPAC", "GC", "statistics"],
+  category: "Sequence Analysis",
+  tags: ["DNA", "RNA", "raw", "GC", "statistics"],
   summary:
-    "Summarize DNA/RNA sequence length, base counts, ambiguity symbols, gaps, and GC content.",
+    "Summarize DNA/RNA sequence length, base counts, ambiguity symbols, and GC content.",
   inputType: "DNA/RNA sequence",
   outputType: "Sequence statistics report, table",
   workflow: {
@@ -22,22 +22,30 @@ export const sequenceStatsDnaRnaMetadata = {
       { id: "warnings", kind: "warnings" }
     ]
   },
+  runInWorker: true,
+  workerModule: "../tools/sequence-stats/run.js",
+  workerExport: "runSequenceStatsDnaRnaWorker",
   options: [
-    { id: "keepGaps", type: "checkbox", label: "Keep gap characters (. and -)", defaultValue: true },
     {
-      id: "outputFormat",
-      type: "radio",
-      label: "Output format",
-      defaultValue: "report",
-      choices: [
-        { value: "report", label: "Summary report" },
-        { value: "tsv", label: "TSV table" }
+      type: "group",
+      label: "Output",
+      options: [
+        {
+          id: "outputFormat",
+          type: "radio",
+          label: "Output format",
+          defaultValue: "report",
+          choices: [
+            { value: "report", label: "Summary report" },
+            { value: "tsv", label: "Table" }
+          ]
+        }
       ]
     },
     {
       id: "cleaningNote",
       type: "note",
-      text: "Input is cleaned to DNA/RNA IUPAC symbols before statistics are calculated. GC% uses G+C divided by A+C+G+T+U."
+      text: "Input is cleaned to DNA/RNA IUPAC symbols before statistics are calculated. Alignment gap characters (. and -) are removed. GC% uses G+C divided by A+C+G+T+U."
     }
   ]
 };

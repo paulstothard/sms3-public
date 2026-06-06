@@ -92,11 +92,23 @@ const defaultFeatureStyles = {
 };
 
 function normalizeFeature(feature, sequenceLength) {
-  const start = Math.max(1, Math.min(sequenceLength, Number(feature.start)));
-  const end = Math.max(start, Math.min(sequenceLength, Number(feature.end)));
+  const rawStart = Number(feature.start);
+  const rawEnd = Number(feature.end);
+  const spansOrigin = Number.isFinite(rawStart) && Number.isFinite(rawEnd) && rawStart > rawEnd;
+  const start = spansOrigin
+    ? Math.max(1, Math.min(sequenceLength, rawEnd))
+    : Math.max(1, Math.min(sequenceLength, rawStart));
+  const end = spansOrigin
+    ? Math.max(1, Math.min(sequenceLength, rawStart))
+    : Math.max(start, Math.min(sequenceLength, rawEnd));
   const rawParts = Array.isArray(feature.parts) && feature.parts.length > 0
     ? feature.parts
-    : [{ start, end, strand: feature.strand }];
+    : spansOrigin
+      ? [
+          { start: rawStart, end: sequenceLength, strand: feature.strand },
+          { start: 1, end: rawEnd, strand: feature.strand }
+        ]
+      : [{ start, end, strand: feature.strand }];
   const parts = rawParts
     .map((part) => {
       const partStart = Math.max(1, Math.min(sequenceLength, Number(part.start)));
@@ -135,19 +147,46 @@ function scaleLinearPosition(position, sequenceLength, left, width) {
   return left + ((position - 1) / (sequenceLength - 1)) * width;
 }
 
-function renderLegend(classes, styles, x, y, { columns = 4 } = {}) {
-  const visible = Object.keys(styles).filter((className) => classes.has(className) && className !== "source");
-  if (visible.length === 0) {
+function getLegendLayout(classes, styles, { maxWidth = 760 } = {}) {
+  const visible = Object.keys(styles)
+    .filter((className) => classes.has(className) && className !== "source")
+    .map((className) => ({
+      className,
+      style: styles[className] ?? styles.other
+    }));
+  const items = [];
+  let row = 0;
+  let cursorX = 0;
+  for (const item of visible) {
+    const itemWidth = Math.max(118, Math.min(280, estimateTextWidth(item.style.label, 12) + 44));
+    if (cursorX > 0 && cursorX + itemWidth > maxWidth) {
+      row += 1;
+      cursorX = 0;
+    }
+    items.push({
+      ...item,
+      x: cursorX,
+      y: row * 24,
+      width: itemWidth
+    });
+    cursorX += itemWidth;
+  }
+  return {
+    items,
+    rows: items.length === 0 ? 0 : row + 1
+  };
+}
+
+function renderLegend(classes, styles, x, y, { maxWidth = 760 } = {}) {
+  const layout = getLegendLayout(classes, styles, { maxWidth });
+  if (layout.items.length === 0) {
     return "";
   }
   const parts = [`<g class="legend" transform="translate(${x} ${y})" aria-label="Legend">`];
-  visible.forEach((className, index) => {
-    const style = styles[className] ?? styles.other;
-    const itemX = (index % columns) * 126;
-    const itemY = Math.floor(index / columns) * 20;
-    parts.push(`<rect x="${itemX}" y="${itemY}" width="12" height="12" rx="2" fill="${style.fill}" stroke="${style.stroke}"></rect>`);
-    parts.push(`<text x="${itemX + 18}" y="${itemY + 10}">${escapeXml(style.label)}</text>`);
-  });
+  for (const item of layout.items) {
+    parts.push(`<rect x="${item.x}" y="${item.y}" width="12" height="12" rx="2" fill="${item.style.fill}" stroke="${item.style.stroke}"></rect>`);
+    parts.push(`<text x="${item.x + 18}" y="${item.y + 10}">${escapeXml(item.style.label)}</text>`);
+  }
   parts.push("</g>");
   return parts.join("\n");
 }
@@ -173,26 +212,99 @@ function assignLinearFeatureLanes(features) {
 }
 
 function assignLinearLabelLanes(labels, leftLimit, rightLimit) {
-  const laneEnds = [];
+  const laneIntervals = [];
+  const minGap = 14;
+  const maxNudge = 88;
+  const maxLabelLanes = 12;
   return labels
     .slice()
     .sort((left, right) => left.x - right.x)
     .map((label) => {
       const halfWidth = Math.min(estimateTextWidth(label.label, 13), 220) / 2;
-      const textX = Math.max(leftLimit + halfWidth, Math.min(rightLimit - halfWidth, label.x));
-      const left = textX - halfWidth;
-      const right = textX + halfWidth;
-      let lane = laneEnds.findIndex((end) => left > end + 14);
-      if (lane < 0 && laneEnds.length < 10) {
-        lane = laneEnds.length;
-        laneEnds.push(leftLimit);
+      const minCenter = leftLimit + halfWidth;
+      const maxCenter = rightLimit - halfWidth;
+      const anchoredTextX = Math.max(minCenter, Math.min(maxCenter, label.x));
+
+      for (let lane = 0; lane < maxLabelLanes; lane += 1) {
+        if (!laneIntervals[lane]) {
+          laneIntervals[lane] = [];
+        }
+        const left = anchoredTextX - halfWidth;
+        const right = anchoredTextX + halfWidth;
+        const collides = laneIntervals[lane].some((interval) => left <= interval.right + minGap && right >= interval.left - minGap);
+        if (!collides) {
+          laneIntervals[lane].push({ left, right });
+          laneIntervals[lane].sort((leftInterval, rightInterval) => leftInterval.left - rightInterval.left);
+          return { ...label, lane, textX: anchoredTextX };
+        }
       }
-      if (lane < 0) {
-        return { ...label, hidden: true };
+
+      for (let lane = 0; lane < maxLabelLanes; lane += 1) {
+        if (!laneIntervals[lane]) {
+          laneIntervals[lane] = [];
+        }
+        const textX = findLinearLabelPosition({
+          anchorX: label.x,
+          halfWidth,
+          intervals: laneIntervals[lane],
+          leftLimit,
+          rightLimit,
+          minGap,
+          maxNudge
+        });
+        if (textX === null) continue;
+        laneIntervals[lane].push({ left: textX - halfWidth, right: textX + halfWidth });
+        laneIntervals[lane].sort((leftInterval, rightInterval) => leftInterval.left - rightInterval.left);
+        return { ...label, lane, textX };
       }
-      laneEnds[lane] = right;
-      return { ...label, lane, textX };
+      return { ...label, hidden: true };
     });
+}
+
+function findLinearLabelPosition({ anchorX, halfWidth, intervals, leftLimit, rightLimit, minGap, maxNudge }) {
+  const minCenter = leftLimit + halfWidth;
+  const maxCenter = rightLimit - halfWidth;
+  const clampedAnchor = Math.max(minCenter, Math.min(maxCenter, anchorX));
+  const candidates = [clampedAnchor];
+  for (const interval of intervals) {
+    candidates.push(interval.left - minGap - halfWidth, interval.right + minGap + halfWidth);
+  }
+  const sorted = Array.from(new Set(candidates.map((value) => Number(value.toFixed(3)))))
+    .filter((value) => value >= minCenter && value <= maxCenter)
+    .filter((value) => Math.abs(value - anchorX) <= maxNudge || value === clampedAnchor)
+    .sort((left, right) => Math.abs(left - anchorX) - Math.abs(right - anchorX));
+  for (const center of sorted) {
+    const left = center - halfWidth;
+    const right = center + halfWidth;
+    const collides = intervals.some((interval) => left <= interval.right + minGap && right >= interval.left - minGap);
+    if (!collides) {
+      return center;
+    }
+  }
+  const sweepStep = 8;
+  for (let distance = sweepStep; distance <= maxNudge; distance += sweepStep) {
+    for (const direction of [-1, 1]) {
+      const center = clampedAnchor + direction * distance;
+      if (center < minCenter || center > maxCenter) continue;
+      const left = center - halfWidth;
+      const right = center + halfWidth;
+      const collides = intervals.some((interval) => left <= interval.right + minGap && right >= interval.left - minGap);
+      if (!collides) {
+        return center;
+      }
+    }
+  }
+  return null;
+}
+
+function shouldLabelLinearFeature(feature) {
+  if (feature.className === "source") {
+    return false;
+  }
+  if (feature.showLabel === false) {
+    return false;
+  }
+  return feature.className !== "variant" || feature.showLabel === true;
 }
 
 function linearSegmentCount(sequenceLength, options = {}) {
@@ -211,16 +323,87 @@ function linearSegmentCount(sequenceLength, options = {}) {
   return 6;
 }
 
+function roundSegmentSpan(rawSpan) {
+  const span = Math.max(1, Number(rawSpan) || 1);
+  let step = 1;
+  if (span >= 50000) {
+    step = 5000;
+  } else if (span >= 5000) {
+    step = 1000;
+  } else if (span >= 1000) {
+    step = 100;
+  } else if (span >= 250) {
+    step = 50;
+  } else if (span >= 50) {
+    step = 10;
+  }
+  return Math.max(1, Math.ceil(span / step) * step);
+}
+
+function linearSegmentSpan(sequenceLength, count, options = {}) {
+  if (options.segmentLength) {
+    return Math.max(1, Number(options.segmentLength));
+  }
+  if (count <= 1) {
+    return Math.max(1, sequenceLength);
+  }
+  return roundSegmentSpan(Math.ceil(sequenceLength / count));
+}
+
 function linearSegments(sequenceLength, options = {}) {
   const count = linearSegmentCount(sequenceLength, options);
-  const size = Math.ceil(sequenceLength / count);
-  return Array.from({ length: count }, (_, index) => {
-    const start = index * size + 1;
+  const span = linearSegmentSpan(sequenceLength, count, options);
+  const segmentCount = Math.max(1, Math.ceil(sequenceLength / span));
+  return Array.from({ length: segmentCount }, (_, index) => {
+    const start = index * span + 1;
     return {
       start,
-      end: Math.min(sequenceLength, start + size - 1)
+      end: Math.min(sequenceLength, start + span - 1),
+      span
     };
   });
+}
+
+function niceTickStep(rawStep) {
+  const value = Math.max(1, Number(rawStep) || 1);
+  const exponent = Math.floor(Math.log10(value));
+  const magnitude = 10 ** exponent;
+  const normalized = value / magnitude;
+  const choices = [1, 1.5, 2, 2.5, 5, 10];
+  const picked = choices.find((choice) => normalized <= choice) ?? 10;
+  return Math.max(1, Math.round(picked * magnitude));
+}
+
+function linearSegmentTicks(segment, targetTickCount) {
+  const span = Math.max(1, Number(segment.span) || (segment.end - segment.start + 1));
+  const tickStep = niceTickStep(span / Math.max(1, targetTickCount));
+  const ticks = [];
+  let position = Math.ceil(segment.start / tickStep) * tickStep;
+  if (position <= segment.start) {
+    position += tickStep;
+  }
+  while (position < segment.end) {
+    ticks.push(position);
+    position += tickStep;
+  }
+  return ticks;
+}
+
+function axisLabelBounds(x, label, anchor = "middle") {
+  const width = estimateTextWidth(label, 12) + 8;
+  if (anchor === "end") {
+    return { left: x - width, right: x };
+  }
+  if (anchor === "start") {
+    return { left: x, right: x + width };
+  }
+  return { left: x - width / 2, right: x + width / 2 };
+}
+
+function axisLabelOverlaps(bounds, placedBounds, gap = 8) {
+  return placedBounds.some((placed) =>
+    bounds.left < placed.right + gap && placed.left < bounds.right + gap
+  );
 }
 
 function clippedFeatureForSegment(feature, segment) {
@@ -235,6 +418,39 @@ function clippedFeatureForSegment(feature, segment) {
     return null;
   }
   return { ...feature, clippedParts: parts };
+}
+
+function renderLinearFeaturePart(feature, part, renderedSegment, segmentLength, left, width, y, height, style) {
+  const x1 = scaleLinearPosition(part.clippedStart - renderedSegment.start + 1, segmentLength, left, width);
+  const x2 = scaleLinearPosition(part.clippedEnd - renderedSegment.start + 1, segmentLength, left, width);
+  if (feature.pointMarker === true) {
+    const markerWidth = Number.isFinite(Number(feature.markerWidth)) ? Number(feature.markerWidth) : 6;
+    const anchorX = (x1 + x2) / 2;
+    const markerX = anchorX - markerWidth / 2;
+    return `<rect class="feature feature-${feature.className}" data-point-marker="true" data-anchor-x="${anchorX.toFixed(2)}" x="${markerX.toFixed(2)}" y="${y}" width="${markerWidth.toFixed(2)}" height="${height}" rx="2" fill="${style.fill}" stroke="${style.stroke}"></rect>`;
+  }
+  const renderedWidth = Math.max(3, x2 - x1);
+  const opacity = feature.className === "source" ? "0.35" : "1";
+  const continuesBefore = part.clippedStart > part.start;
+  const continuesAfter = part.clippedEnd < part.end;
+  if (!continuesBefore && !continuesAfter) {
+    return `<rect class="feature feature-${feature.className}" x="${x1.toFixed(2)}" y="${y}" width="${renderedWidth.toFixed(2)}" height="${height}" rx="2" fill="${style.fill}" stroke="${style.stroke}" opacity="${opacity}"></rect>`;
+  }
+  const right = x1 + renderedWidth;
+  const top = y;
+  const bottom = y + height;
+  const parts = [
+    `<rect class="feature feature-${feature.className}" data-open-boundary="true" x="${x1.toFixed(2)}" y="${y}" width="${renderedWidth.toFixed(2)}" height="${height}" rx="0" fill="${style.fill}" stroke="none" opacity="${opacity}"></rect>`,
+    `<line class="feature-boundary feature-${feature.className}-boundary" x1="${x1.toFixed(2)}" y1="${top}" x2="${right.toFixed(2)}" y2="${top}" stroke="${style.stroke}"></line>`,
+    `<line class="feature-boundary feature-${feature.className}-boundary" x1="${x1.toFixed(2)}" y1="${bottom}" x2="${right.toFixed(2)}" y2="${bottom}" stroke="${style.stroke}"></line>`
+  ];
+  if (!continuesBefore) {
+    parts.push(`<line class="feature-boundary feature-${feature.className}-boundary" x1="${x1.toFixed(2)}" y1="${top}" x2="${x1.toFixed(2)}" y2="${bottom}" stroke="${style.stroke}"></line>`);
+  }
+  if (!continuesAfter) {
+    parts.push(`<line class="feature-boundary feature-${feature.className}-boundary" x1="${right.toFixed(2)}" y1="${top}" x2="${right.toFixed(2)}" y2="${bottom}" stroke="${style.stroke}"></line>`);
+  }
+  return parts.join("\n");
 }
 
 function renderLinearRecord(record, rowTop, styles, classes, options = {}) {
@@ -261,26 +477,34 @@ function renderLinearRecord(record, rowTop, styles, classes, options = {}) {
     const inlineLabels = [];
     const maxFeatureLane = Math.max(0, ...segmentFeatures.map((feature) => feature.lane));
     const segmentHeightBase = 58 + (maxFeatureLane + 1) * 18;
-    const labelCandidates = segmentFeatures
-      .filter((feature) => feature.className !== "source")
-      .filter((feature) => feature.className !== "variant")
+    const maxSegmentLabels = Number.isFinite(Number(options.maxLinearLabelsPerSegment))
+      ? Math.max(0, Number(options.maxLinearLabelsPerSegment))
+      : 64;
+    const sortedLabelFeatures = segmentFeatures
+      .filter(shouldLabelLinearFeature)
       .sort((leftFeature, rightFeature) =>
         featureLabelPriority(leftFeature) - featureLabelPriority(rightFeature) ||
         largestPartLength(rightFeature) - largestPartLength(leftFeature)
-      )
-      .slice(0, 64)
+      );
+    totalHiddenLabels += Math.max(0, sortedLabelFeatures.length - maxSegmentLabels);
+    const labelCandidates = sortedLabelFeatures
+      .slice(0, maxSegmentLabels)
       .map((feature) => {
         const largestPart = feature.clippedParts
           .slice()
           .sort((leftPart, rightPart) => (rightPart.clippedEnd - rightPart.clippedStart) - (leftPart.clippedEnd - leftPart.clippedStart))[0];
-        const x1 = scaleLinearPosition(largestPart.clippedStart - segment.start + 1, segment.end - segment.start + 1, left, width);
-        const x2 = scaleLinearPosition(largestPart.clippedEnd - segment.start + 1, segment.end - segment.start + 1, left, width);
+        const segmentSpan = segment.span ?? (segment.end - segment.start + 1);
+        const x1 = scaleLinearPosition(largestPart.clippedStart - segment.start + 1, segmentSpan, left, width);
+        const x2 = scaleLinearPosition(largestPart.clippedEnd - segment.start + 1, segmentSpan, left, width);
+        const markerWidth = feature.pointMarker === true
+          ? Number(feature.markerWidth) || 6
+          : x2 - x1;
         const label = truncateLabel(feature.label, 32);
-        if (x2 - x1 >= estimateTextWidth(label, 12) + 18) {
+        if (feature.labelPlacement !== "external" && x2 - x1 >= estimateTextWidth(label, 12) + 18) {
           inlineLabels.push({ ...feature, label, x: (x1 + x2) / 2, lane: feature.lane });
           return null;
         }
-        return { ...feature, label, x: (x1 + x2) / 2 };
+        return { ...feature, label, x: (x1 + x2) / 2, featureLane: feature.lane, markerWidth };
       })
       .filter(Boolean);
     const labels = assignLinearLabelLanes(labelCandidates, left, right);
@@ -291,31 +515,52 @@ function renderLinearRecord(record, rowTop, styles, classes, options = {}) {
     renderedSegments.push({ segment, segmentFeatures, inlineLabels, labels, top: segmentOffset, height: segmentHeight, labelTop });
     segmentOffset += segmentHeight + 12;
   }
-  const rowHeight = segmentOffset + 30;
+  const recordNotes = Array.isArray(record.notes) ? record.notes.filter(Boolean) : [];
+  const noteCount = totalHiddenLabels > 0
+    ? recordNotes.length + 1
+    : recordNotes.length;
+  const hasRecordNotes = noteCount > 0 || (options.forceLinearCircularNote && record.topology === "circular");
+  const rowHeight = segmentOffset + (hasRecordNotes ? 18 + Math.max(1, noteCount) * 18 : -10);
   const parts = [`<g class="map-record" transform="translate(0 ${rowTop})">`];
-  parts.push(`<text class="record-title" x="${left}" y="22">${escapeXml(record.title)} (${sequenceLength.toLocaleString()} ${record.molecule === "protein" ? "aa" : "bp"})</text>`);
+  const unit = record.molecule === "protein" ? "aa" : "bp";
+  const recordTitle = record.molecule === "protein"
+    ? `${record.title} (${sequenceLength.toLocaleString()} ${unit})`
+    : `${record.title} linear feature map (${sequenceLength.toLocaleString()} ${unit})`;
+  parts.push(`<text class="record-title" x="${left}" y="22">${escapeXml(recordTitle)}</text>`);
   for (const rendered of renderedSegments) {
     const axisY = rendered.top + 22;
     const segmentLength = rendered.segment.end - rendered.segment.start + 1;
-    parts.push(`<line class="axis" x1="${left}" y1="${axisY}" x2="${right}" y2="${axisY}"></line>`);
-    parts.push(`<text class="axis-label" x="${left}" y="${axisY - 10}">${escapeXml(rendered.segment.start.toLocaleString())}</text>`);
-    parts.push(`<text class="axis-label" x="${right}" y="${axisY - 10}" text-anchor="end">${escapeXml(rendered.segment.end.toLocaleString())}</text>`);
-    const tickCount = segmentLength >= 1000 ? 5 : 4;
-    for (let index = 1; index < tickCount; index += 1) {
-      const offset = Math.round(1 + (index / tickCount) * Math.max(0, segmentLength - 1));
-      const position = rendered.segment.start + offset - 1;
-      const x = scaleLinearPosition(offset, segmentLength, left, width);
+    const segmentSpan = rendered.segment.span ?? segmentLength;
+    const segmentRight = scaleLinearPosition(segmentLength, segmentSpan, left, width);
+    parts.push(`<line class="axis" x1="${left}" y1="${axisY}" x2="${segmentRight.toFixed(2)}" y2="${axisY}" data-segment-span="${segmentSpan}" data-segment-start="${rendered.segment.start}" data-segment-end="${rendered.segment.end}"></line>`);
+    const startLabel = rendered.segment.start.toLocaleString();
+    const endLabel = rendered.segment.end.toLocaleString();
+    const axisLabelY = axisY - 10;
+    const placedAxisLabelBounds = [axisLabelBounds(left, startLabel, "start")];
+    parts.push(`<text class="axis-label" x="${left}" y="${axisLabelY}">${escapeXml(startLabel)}</text>`);
+    const endBounds = axisLabelBounds(segmentRight, endLabel, "end");
+    if (!axisLabelOverlaps(endBounds, placedAxisLabelBounds, 10)) {
+      placedAxisLabelBounds.push(endBounds);
+      parts.push(`<text class="axis-label" x="${segmentRight.toFixed(2)}" y="${axisLabelY}" text-anchor="end">${escapeXml(endLabel)}</text>`);
+    }
+    const tickCount = segmentSpan >= 1000 ? 5 : 4;
+    for (const position of linearSegmentTicks(rendered.segment, tickCount)) {
+      const offset = position - rendered.segment.start + 1;
+      const x = scaleLinearPosition(offset, segmentSpan, left, width);
       parts.push(`<line class="axis-tick" x1="${x.toFixed(2)}" y1="${axisY - 5}" x2="${x.toFixed(2)}" y2="${axisY + 5}"></line>`);
-      parts.push(`<text class="axis-label" x="${x.toFixed(2)}" y="${axisY - 10}" text-anchor="middle">${escapeXml(position.toLocaleString())}</text>`);
+      const tickLabel = position.toLocaleString();
+      const tickBounds = axisLabelBounds(x, tickLabel, "middle");
+      if (!axisLabelOverlaps(tickBounds, placedAxisLabelBounds)) {
+        placedAxisLabelBounds.push(tickBounds);
+        parts.push(`<text class="axis-label" x="${x.toFixed(2)}" y="${axisLabelY}" text-anchor="middle">${escapeXml(tickLabel)}</text>`);
+      }
     }
     for (const feature of rendered.segmentFeatures) {
       const style = styles[feature.className] ?? styles.other;
       const y = axisY + 14 + feature.lane * 18;
       const height = feature.className === "source" ? 5 : 10;
       for (const part of feature.clippedParts) {
-        const x1 = scaleLinearPosition(part.clippedStart - rendered.segment.start + 1, segmentLength, left, width);
-        const x2 = scaleLinearPosition(part.clippedEnd - rendered.segment.start + 1, segmentLength, left, width);
-        parts.push(`<rect class="feature feature-${feature.className}" x="${x1.toFixed(2)}" y="${y}" width="${Math.max(3, x2 - x1).toFixed(2)}" height="${height}" rx="2" fill="${style.fill}" stroke="${style.stroke}" opacity="${feature.className === "source" ? "0.35" : "1"}"></rect>`);
+        parts.push(renderLinearFeaturePart(feature, part, rendered.segment, segmentSpan, left, width, y, height, style));
       }
     }
     for (const label of rendered.labels) {
@@ -323,16 +568,29 @@ function renderLinearRecord(record, rowTop, styles, classes, options = {}) {
         continue;
       }
       const y = rendered.top + rendered.labelTop + label.lane * 21;
-      parts.push(`<line class="label-leader" x1="${label.x.toFixed(2)}" y1="${axisY + 10}" x2="${label.x.toFixed(2)}" y2="${y - 11}"></line>`);
+      const style = styles[label.className] ?? styles.other;
+      const labelMarkerColor = style.stroke;
+      const markerY = axisY + 14 + label.featureLane * 18 + 5;
+      parts.push(`<line class="label-leader" x1="${label.x.toFixed(2)}" y1="${axisY}" x2="${label.x.toFixed(2)}" y2="${y - 11}"></line>`);
+      if (label.markerWidth >= 4.2) {
+        parts.push(`<circle class="label-anchor" cx="${label.x.toFixed(2)}" cy="${markerY}" r="2.1" fill="${labelMarkerColor}"></circle>`);
+      }
       parts.push(`<text class="feature-label" x="${label.textX.toFixed(2)}" y="${y}" text-anchor="middle">${escapeXml(truncateLabel(label.label, 34))}</text>`);
     }
     for (const label of rendered.inlineLabels) {
       const y = axisY + 14 + label.lane * 18 + 8;
-      parts.push(`<text class="feature-label-inside" x="${label.x.toFixed(2)}" y="${y}" text-anchor="middle">${escapeXml(label.label)}</text>`);
+      const className = label.compactLabel ? "feature-label-inside feature-label-inside-compact" : "feature-label-inside";
+      parts.push(`<text class="${className}" x="${label.x.toFixed(2)}" y="${y}" text-anchor="middle">${escapeXml(label.label)}</text>`);
     }
   }
+  let noteY = rowHeight - 12 - Math.max(0, noteCount - 1) * 18;
+  for (const note of recordNotes) {
+    parts.push(`<text class="axis-note" x="${left}" y="${noteY}">${escapeXml(note)}</text>`);
+    noteY += 18;
+  }
   if (totalHiddenLabels > 0) {
-    parts.push(`<text class="axis-note" x="${left}" y="${rowHeight - 12}">${totalHiddenLabels} feature label(s) hidden; see feature table.</text>`);
+    parts.push(`<text class="axis-note" x="${left}" y="${noteY}">${totalHiddenLabels} feature label(s) hidden; see feature table.</text>`);
+    noteY += 18;
   }
   if (options.forceLinearCircularNote && record.topology === "circular") {
     parts.push(`<text class="axis-note" x="${left}" y="${rowHeight - 28}">Circular record shown as a linear coordinate overview.</text>`);
@@ -352,33 +610,127 @@ function labelAnchorForAngle(angle) {
   return "middle";
 }
 
-function placeCircularLabels(labels, centerX, minY, maxY) {
-  const placed = [];
-  const minSpacing = 17;
-  for (const side of ["left", "right"]) {
-    const sideLabels = labels
-      .filter((label) => label.side === side)
-      .sort((left, right) => left.naturalY - right.naturalY);
-    const rows = sideLabels.map((label) => ({
+function circularLabelZoneForAngle(angle) {
+  const normalized = ((angle % 360) + 360) % 360;
+  if (normalized <= 20 || normalized >= 340) {
+    return "top";
+  }
+  if (normalized >= 160 && normalized <= 200) {
+    return "bottom";
+  }
+  return normalized < 180 ? "right" : "left";
+}
+
+function spreadCircularLabelsByY(labels, minY, maxY, minSpacing) {
+  const rows = labels
+    .sort((left, right) => left.naturalY - right.naturalY)
+    .map((label) => ({
       ...label,
       textY: Math.max(minY, Math.min(maxY, label.naturalY))
     }));
-    for (let index = 1; index < rows.length; index += 1) {
-      rows[index].textY = Math.max(rows[index].textY, rows[index - 1].textY + minSpacing);
+  for (let index = 1; index < rows.length; index += 1) {
+    rows[index].textY = Math.max(rows[index].textY, rows[index - 1].textY + minSpacing);
+  }
+  for (let index = rows.length - 2; index >= 0; index -= 1) {
+    if (rows[index + 1].textY > maxY) {
+      rows[index + 1].textY = maxY;
     }
-    for (let index = rows.length - 2; index >= 0; index -= 1) {
-      if (rows[index + 1].textY > maxY) {
-        rows[index + 1].textY = maxY;
-      }
-      rows[index].textY = Math.min(rows[index].textY, rows[index + 1].textY - minSpacing);
+    rows[index].textY = Math.min(rows[index].textY, rows[index + 1].textY - minSpacing);
+  }
+  if (rows[0]?.textY < minY) {
+    const shift = minY - rows[0].textY;
+    for (const row of rows) {
+      row.textY = Math.min(maxY, row.textY + shift);
     }
-    if (rows[0]?.textY < minY) {
-      const shift = minY - rows[0].textY;
-      for (const row of rows) {
-        row.textY = Math.min(maxY, row.textY + shift);
-      }
+  }
+  return rows;
+}
+
+function spreadCircularLabelsByX(labels, minX, maxX, minSpacing) {
+  const rows = labels
+    .sort((left, right) => left.naturalX - right.naturalX)
+    .map((label) => {
+      const width = estimateTextWidth(label.text, 13);
+      const halfWidth = width / 2;
+      return {
+        ...label,
+        width,
+        textX: Math.max(minX + halfWidth, Math.min(maxX - halfWidth, label.naturalX))
+      };
+    });
+  for (let index = 1; index < rows.length; index += 1) {
+    const leftEdge = rows[index - 1].textX + rows[index - 1].width / 2 + minSpacing;
+    rows[index].textX = Math.max(rows[index].textX, leftEdge + rows[index].width / 2);
+  }
+  for (let index = rows.length - 2; index >= 0; index -= 1) {
+    if (rows[index + 1].textX + rows[index + 1].width / 2 > maxX) {
+      rows[index + 1].textX = maxX - rows[index + 1].width / 2;
     }
-    placed.push(...rows);
+    const rightEdge = rows[index + 1].textX - rows[index + 1].width / 2 - minSpacing;
+    rows[index].textX = Math.min(rows[index].textX, rightEdge - rows[index].width / 2);
+  }
+  if (rows.length > 0 && rows[0].textX - rows[0].width / 2 < minX) {
+    const shift = minX - (rows[0].textX - rows[0].width / 2);
+    for (const row of rows) {
+      row.textX = Math.min(maxX - row.width / 2, row.textX + shift);
+    }
+  }
+  return rows;
+}
+
+function circularLabelRowYs(zone, count, preferredY) {
+  const rowCount = Math.max(1, Math.min(3, Math.ceil(count / 2)));
+  if (rowCount === 1) {
+    return [preferredY];
+  }
+  if (zone === "top") {
+    return rowCount === 2 ? [112, 138] : [102, 124, 146];
+  }
+  return rowCount === 2 ? [594, 620] : [582, 608, 634];
+}
+
+function spreadCircularLabelsByXRows(labels, zone, minX, maxX, minSpacing, preferredY) {
+  const sorted = labels.slice().sort((left, right) => left.naturalX - right.naturalX);
+  const rowYs = circularLabelRowYs(zone, sorted.length, preferredY);
+  const rowBuckets = rowYs.map(() => []);
+  sorted.forEach((label, index) => {
+    rowBuckets[index % rowBuckets.length].push({
+      ...label,
+      textY: rowYs[index % rowYs.length]
+    });
+  });
+  return rowBuckets.flatMap((row) => spreadCircularLabelsByX(row, minX, maxX, minSpacing));
+}
+
+function placeCircularLabels(labels, bounds) {
+  const { minY, maxY, minX, maxX, topY, bottomY } = bounds;
+  const placed = [];
+  const minSpacing = 17;
+  const maxRows = Math.floor((maxY - minY) / minSpacing) + 1;
+  for (const side of ["left", "right"]) {
+    const sideCandidates = labels.filter((label) => label.zone === side);
+    const kept = sideCandidates.length > maxRows
+      ? new Set(sideCandidates
+        .slice()
+        .sort((left, right) => (left.labelRank ?? 0) - (right.labelRank ?? 0) || left.naturalY - right.naturalY)
+        .slice(0, maxRows))
+      : null;
+    const sideLabels = sideCandidates
+      .filter((label) => !kept || kept.has(label))
+      .map((label) => ({
+        ...label,
+        textX: side === "right" ? maxX - 180 : minX + 180
+      }));
+    placed.push(...spreadCircularLabelsByY(sideLabels, minY, maxY, minSpacing));
+  }
+  for (const zone of ["top", "bottom"]) {
+    const zoneLabels = labels
+      .filter((label) => label.zone === zone)
+      .map((label) => ({
+        ...label,
+        textY: zone === "top" ? topY : bottomY
+      }));
+    placed.push(...spreadCircularLabelsByXRows(zoneLabels, zone, minX + 32, maxX - 32, 10, zone === "top" ? topY : bottomY));
   }
   return placed.sort((left, right) => left.angle - right.angle);
 }
@@ -412,6 +764,11 @@ function renderCircularRecord(record, styles, classes) {
     }
   });
   const labelLimit = 64;
+  const labelableFeatures = drawable.filter((feature) => feature.className !== "variant").length;
+  const labelMaxY = 626;
+  const labelMinY = 104;
+  const labelMinX = 32;
+  const labelMaxX = 928;
   const rawLabels = drawable
     .filter((feature) => feature.className !== "variant")
     .sort((left, right) => {
@@ -424,49 +781,82 @@ function renderCircularRecord(record, styles, classes) {
     const radius = ringBase + (feature.ring ?? feature.slot ?? index % 3) * 12;
     const leaderStart = polarToCartesian(centerX, centerY, radius + 7, angle);
     const leaderEnd = polarToCartesian(centerX, centerY, radius + 19, angle);
-    const textPoint = polarToCartesian(centerX, centerY, radius + 30, angle);
-    const side = textPoint.x >= centerX ? "right" : "left";
-    const anchor = side === "right" ? "start" : "end";
+    const textPoint = polarToCartesian(centerX, centerY, radius + 55, angle);
+    const zone = circularLabelZoneForAngle(angle);
+    const anchor = zone === "right" ? "start" : zone === "left" ? "end" : "middle";
+    const text = truncateLabel(feature.label, 30);
     return {
       feature,
       angle,
+      labelRank: index,
       leaderStart,
       leaderEnd,
-      textX: side === "right" ? 700 : 260,
+      text,
+      naturalX: textPoint.x,
       naturalY: textPoint.y,
       anchor,
-      side
+      zone
     };
   });
-  const labels = placeCircularLabels(rawLabels, centerX, 96, 560);
+  const labels = placeCircularLabels(rawLabels, {
+    minY: labelMinY,
+    maxY: labelMaxY,
+    minX: labelMinX,
+    maxX: labelMaxX,
+    topY: 126,
+    bottomY: 612
+  });
   for (const label of labels) {
     parts.push(`<line class="label-leader" x1="${label.leaderStart.x.toFixed(2)}" y1="${label.leaderStart.y.toFixed(2)}" x2="${label.leaderEnd.x.toFixed(2)}" y2="${label.leaderEnd.y.toFixed(2)}"></line>`);
-    const elbowX = label.anchor === "start" ? label.textX - 7 : label.textX + 7;
-    parts.push(`<line class="label-leader" x1="${label.leaderEnd.x.toFixed(2)}" y1="${label.leaderEnd.y.toFixed(2)}" x2="${elbowX.toFixed(2)}" y2="${label.textY.toFixed(2)}"></line>`);
-    parts.push(`<text class="feature-label" x="${label.textX.toFixed(2)}" y="${label.textY.toFixed(2)}" text-anchor="${label.anchor}">${escapeXml(truncateLabel(label.feature.label, 30))}</text>`);
+    if (label.zone === "top" || label.zone === "bottom") {
+      const textEdgeY = label.zone === "top" ? label.textY + 6 : label.textY - 13;
+      parts.push(`<line class="label-leader" x1="${label.leaderEnd.x.toFixed(2)}" y1="${label.leaderEnd.y.toFixed(2)}" x2="${label.textX.toFixed(2)}" y2="${textEdgeY.toFixed(2)}"></line>`);
+    } else {
+      const elbowX = label.anchor === "start" ? label.textX - 7 : label.textX + 7;
+      parts.push(`<line class="label-leader" x1="${label.leaderEnd.x.toFixed(2)}" y1="${label.leaderEnd.y.toFixed(2)}" x2="${elbowX.toFixed(2)}" y2="${label.textY.toFixed(2)}"></line>`);
+    }
+    parts.push(`<text class="feature-label" data-label-zone="${label.zone}" x="${label.textX.toFixed(2)}" y="${label.textY.toFixed(2)}" text-anchor="${label.anchor}">${escapeXml(label.text)}</text>`);
   }
-  const labelableFeatures = drawable.filter((feature) => feature.className !== "variant").length;
   const hiddenLabels = Math.max(0, labelableFeatures - labels.length);
   if (hiddenLabels > 0) {
-    parts.push(`<text class="axis-note" x="32" y="592">${hiddenLabels} feature label(s) hidden; see feature table.</text>`);
+    parts.push(`<text class="axis-note" x="32" y="650">${hiddenLabels} feature label(s) hidden; see feature table.</text>`);
   }
-  return { svg: parts.join("\n"), height: 670 };
+  return { svg: parts.join("\n"), height: hiddenLabels > 0 ? 720 : 670 };
 }
 
-export function renderSequenceMap({ title = "Feature map", records = [], styles = defaultFeatureStyles } = {}) {
+export function renderSequenceMap({ title = "Feature map", records = [], styles = defaultFeatureStyles, layout = "auto" } = {}) {
   const drawableRecords = records.filter((record) => record.length > 0);
   if (drawableRecords.length === 0) {
     return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 130" role="img" aria-label="No feature map available"><style>.title{font:600 18px system-ui,sans-serif;fill:#111827}.note{font:13px system-ui,sans-serif;fill:#475569}</style><text class="title" x="32" y="42">${escapeXml(title)}</text><text class="note" x="32" y="78">No sequence was available to draw.</text></svg>`;
   }
+  const requestedLayout = layout === "linear" || layout === "circular" ? layout : "auto";
   const classes = new Set();
   let width = 840;
   let height = 0;
   let body = "";
-  if (drawableRecords.length === 1 && drawableRecords[0].topology === "circular" && drawableRecords[0].molecule !== "protein") {
+  const shouldRenderCircular = (record) => record.molecule !== "protein" && (
+    requestedLayout === "circular" ||
+    (requestedLayout === "auto" && record.topology === "circular" && drawableRecords.length === 1)
+  );
+  if (drawableRecords.some(shouldRenderCircular)) {
     width = 960;
-    const rendered = renderCircularRecord(drawableRecords[0], styles, classes);
-    body = rendered.svg;
-    height = rendered.height;
+    let rowTop = 62;
+    const parts = [];
+    for (const record of drawableRecords) {
+      if (shouldRenderCircular(record)) {
+        const rendered = renderCircularRecord(record, styles, classes);
+        parts.push(`<g transform="translate(0 ${rowTop})">`);
+        parts.push(rendered.svg);
+        parts.push("</g>");
+        rowTop += rendered.height;
+      } else {
+        const rendered = renderLinearRecord(record, rowTop, styles, classes);
+        parts.push(rendered.svg);
+        rowTop += rendered.height;
+      }
+    }
+    body = parts.join("\n");
+    height = rowTop + 40;
   } else {
     width = 960;
     let rowTop = 62;
@@ -479,22 +869,26 @@ export function renderSequenceMap({ title = "Feature map", records = [], styles 
     body = parts.join("\n");
     height = rowTop + 40;
   }
-  const legendColumns = width <= 640 ? 3 : 4;
-  const legendRows = Math.ceil(Object.keys(styles).filter((className) => classes.has(className) && className !== "source").length / legendColumns);
-  const legend = renderLegend(classes, styles, 32, height - 44, { columns: legendColumns });
-  const viewHeight = height + (legend ? Math.max(8, (legendRows - 1) * 20 + 8) : 0);
+  const legendX = 32;
+  const legendMaxWidth = width - legendX - 32;
+  const legendRows = getLegendLayout(classes, styles, { maxWidth: legendMaxWidth }).rows;
+  const legendTop = height - 24;
+  const legend = renderLegend(classes, styles, legendX, legendTop, { maxWidth: legendMaxWidth });
+  const viewHeight = legend ? legendTop + legendRows * 24 + 20 : height;
   return [
-    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${viewHeight}" role="img" aria-label="${escapeXml(title)}">`,
+    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${viewHeight}" role="img" aria-label="${escapeXml(title)}" data-sequence-map-renderer="sms3">`,
     "<style>",
-    ".title{font:700 18px system-ui,-apple-system,Segoe UI,sans-serif;fill:#111827}",
-    ".record-title{font:600 15px system-ui,-apple-system,Segoe UI,sans-serif;fill:#111827}",
-    ".axis,.circle-axis{stroke:#334155;stroke-width:1.5}",
-    ".axis-tick{stroke:#64748b;stroke-width:1}",
-    ".axis-label,.axis-note{font:13px system-ui,-apple-system,Segoe UI,sans-serif;fill:#475569}",
-    ".feature-label{font:14px system-ui,-apple-system,Segoe UI,sans-serif;fill:#111827}",
-    ".feature-label-inside{font:600 12px system-ui,-apple-system,Segoe UI,sans-serif;fill:#ffffff;paint-order:stroke;stroke:#111827;stroke-width:2px;stroke-linejoin:round}",
-    ".label-leader{stroke:#94a3b8;stroke-width:1}",
-    ".legend text{font:12px system-ui,-apple-system,Segoe UI,sans-serif;fill:#111827}",
+    "[data-sequence-map-renderer=\"sms3\"] .title{font:700 18px system-ui,-apple-system,Segoe UI,sans-serif;fill:#111827}",
+    "[data-sequence-map-renderer=\"sms3\"] .record-title{font:600 15px system-ui,-apple-system,Segoe UI,sans-serif;fill:#111827}",
+    "[data-sequence-map-renderer=\"sms3\"] .axis,[data-sequence-map-renderer=\"sms3\"] .circle-axis{stroke:#334155;stroke-width:1.5}",
+    "[data-sequence-map-renderer=\"sms3\"] .axis-tick{stroke:#64748b;stroke-width:1}",
+    "[data-sequence-map-renderer=\"sms3\"] .feature-boundary{stroke-width:1}",
+    "[data-sequence-map-renderer=\"sms3\"] .axis-label,[data-sequence-map-renderer=\"sms3\"] .axis-note{font:12px system-ui,-apple-system,Segoe UI,sans-serif;fill:#475569;stroke:none;stroke-width:0;paint-order:normal}",
+    "[data-sequence-map-renderer=\"sms3\"] .feature-label{font:14px system-ui,-apple-system,Segoe UI,sans-serif;fill:#111827}",
+    "[data-sequence-map-renderer=\"sms3\"] .feature-label-inside{font:600 12px system-ui,-apple-system,Segoe UI,sans-serif;fill:#ffffff;paint-order:stroke;stroke:#111827;stroke-width:2px;stroke-linejoin:round}",
+    "[data-sequence-map-renderer=\"sms3\"] .feature-label-inside-compact{font-size:10.5px;stroke-width:1.6px}",
+    "[data-sequence-map-renderer=\"sms3\"] .label-leader{stroke:#94a3b8;stroke-width:1}",
+    "[data-sequence-map-renderer=\"sms3\"] .legend text{font:12px system-ui,-apple-system,Segoe UI,sans-serif;fill:#111827}",
     "</style>",
     `<text class="title" x="32" y="28">${escapeXml(title)}</text>`,
     body,

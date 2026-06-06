@@ -53,16 +53,24 @@ function resolveKeyColumns(columns, value, side, warnings) {
 }
 
 function makeKey(row, columns, caseSensitive) {
-  return JSON.stringify(columns.map((column) => {
-    const value = String(row[column.id] ?? "").trim();
-    return caseSensitive ? value : value.toLowerCase();
-  }));
+  const values = [];
+  for (const column of columns) {
+    const value = String(row?.[column.id] ?? "").trim();
+    if (value === "") {
+      return null;
+    }
+    values.push(caseSensitive ? value : value.toLowerCase());
+  }
+  return JSON.stringify(values);
 }
 
 function indexRows(rows, keyColumns, caseSensitive) {
   const index = new Map();
   for (const row of rows) {
     const key = makeKey(row, keyColumns, caseSensitive);
+    if (key === null) {
+      continue;
+    }
     if (!index.has(key)) {
       index.set(key, []);
     }
@@ -71,10 +79,18 @@ function indexRows(rows, keyColumns, caseSensitive) {
   return index;
 }
 
-function addOutputColumns(leftColumns, rightColumns, rightKeyColumns) {
+function addOutputColumns(leftColumns, rightColumns, leftKeyColumns, rightKeyColumns) {
   const usedIds = new Set();
+  const usedLabels = new Set();
   const outputColumns = [];
   const mappings = [];
+  const leftKeyFallbackById = new Map();
+  for (const [index, rightKeyColumn] of rightKeyColumns.entries()) {
+    const leftKeyColumn = leftKeyColumns[index];
+    if (leftKeyColumn) {
+      leftKeyFallbackById.set(leftKeyColumn.id, rightKeyColumn);
+    }
+  }
   for (const column of leftColumns) {
     const output = {
       id: normalizeColumnId(column.label, usedIds),
@@ -82,16 +98,33 @@ function addOutputColumns(leftColumns, rightColumns, rightKeyColumns) {
       type: column.type ?? "string"
     };
     outputColumns.push(output);
-    mappings.push({ side: "left", source: column, output });
+    usedLabels.add(output.label.toLowerCase());
+    mappings.push({
+      side: "left",
+      source: column,
+      fallback: leftKeyFallbackById.get(column.id),
+      output
+    });
   }
   const rightKeyIds = new Set(rightKeyColumns.map((column) => column.id));
   for (const column of rightColumns) {
     if (rightKeyIds.has(column.id)) {
       continue;
     }
+    let label = column.label;
+    if (usedLabels.has(label.toLowerCase())) {
+      label = `${label}_right`;
+    }
+    const baseLabel = label;
+    let suffix = 2;
+    while (usedLabels.has(label.toLowerCase())) {
+      label = `${baseLabel}_${suffix}`;
+      suffix += 1;
+    }
+    usedLabels.add(label.toLowerCase());
     const output = {
-      id: normalizeColumnId(column.label, usedIds),
-      label: column.label,
+      id: normalizeColumnId(label, usedIds),
+      label,
       type: column.type ?? "string"
     };
     outputColumns.push(output);
@@ -104,7 +137,11 @@ function combineRows(leftRow, rightRow, mappings) {
   const output = {};
   for (const mapping of mappings) {
     const sourceRow = mapping.side === "left" ? leftRow : rightRow;
-    output[mapping.output.id] = sourceRow?.[mapping.source.id] ?? "";
+    let value = sourceRow?.[mapping.source.id] ?? "";
+    if (value === "" && mapping.fallback && rightRow) {
+      value = rightRow[mapping.fallback.id] ?? "";
+    }
+    output[mapping.output.id] = value;
   }
   return output;
 }
@@ -126,14 +163,48 @@ export function joinTables(input, options = {}) {
   const rightKeyColumns = resolveKeyColumns(right.columns, options.rightKeyColumns ?? options.leftKeyColumns ?? "sample_id", "Right", warnings);
   const joinType = ["inner", "left", "full"].includes(options.joinType) ? options.joinType : "inner";
   const caseSensitive = options.caseSensitive === true;
-  const rightIndex = indexRows(right.rows, rightKeyColumns, caseSensitive);
+  const pairedKeyCount = Math.min(leftKeyColumns.length, rightKeyColumns.length);
+  const activeLeftKeyColumns = leftKeyColumns.slice(0, pairedKeyCount);
+  const activeRightKeyColumns = rightKeyColumns.slice(0, pairedKeyCount);
+  if (pairedKeyCount === 0) {
+    warnings.push("No complete join key was available; no rows were joined.");
+    return {
+      left,
+      right,
+      outputColumns: [],
+      outputRows: [],
+      report: [
+        "Table join",
+        "",
+        `Join type: ${joinType}`,
+        `Left rows: ${left.rows.length}`,
+        `Right rows: ${right.rows.length}`,
+        "Output rows: 0",
+        `Left key columns: ${activeLeftKeyColumns.map((column) => column.label).join(", ") || "none"}`,
+        `Right key columns: ${activeRightKeyColumns.map((column) => column.label).join(", ") || "none"}`
+      ].join("\n"),
+      warnings
+    };
+  }
+  if (leftKeyColumns.length !== rightKeyColumns.length) {
+    warnings.push("The left and right join key lists have different lengths; matching uses the paired keys that were found.");
+  }
+  const leftRowsWithIncompleteKeys = left.rows.filter((row) => makeKey(row, activeLeftKeyColumns, caseSensitive) === null).length;
+  const rightRowsWithIncompleteKeys = right.rows.filter((row) => makeKey(row, activeRightKeyColumns, caseSensitive) === null).length;
+  if (leftRowsWithIncompleteKeys > 0) {
+    warnings.push(`Left table has ${leftRowsWithIncompleteKeys} row(s) with incomplete join keys; those rows cannot match another table row.`);
+  }
+  if (rightRowsWithIncompleteKeys > 0) {
+    warnings.push(`Right table has ${rightRowsWithIncompleteKeys} row(s) with incomplete join keys; those rows cannot match another table row.`);
+  }
+  const rightIndex = indexRows(right.rows, activeRightKeyColumns, caseSensitive);
   const matchedRightRows = new Set();
-  const { outputColumns, mappings } = addOutputColumns(left.columns, right.columns, rightKeyColumns);
+  const { outputColumns, mappings } = addOutputColumns(left.columns, right.columns, activeLeftKeyColumns, activeRightKeyColumns);
   const outputRows = [];
 
   for (const leftRow of left.rows) {
-    const key = makeKey(leftRow, leftKeyColumns, caseSensitive);
-    const matches = rightIndex.get(key) ?? [];
+    const key = makeKey(leftRow, activeLeftKeyColumns, caseSensitive);
+    const matches = key === null ? [] : rightIndex.get(key) ?? [];
     if (matches.length === 0) {
       if (joinType === "left" || joinType === "full") {
         outputRows.push(combineRows(leftRow, null, mappings));
@@ -153,7 +224,7 @@ export function joinTables(input, options = {}) {
     }
   }
 
-  const duplicateLeftKeys = [...indexRows(left.rows, leftKeyColumns, caseSensitive).values()].filter((rows) => rows.length > 1).length;
+  const duplicateLeftKeys = [...indexRows(left.rows, activeLeftKeyColumns, caseSensitive).values()].filter((rows) => rows.length > 1).length;
   const duplicateRightKeys = [...rightIndex.values()].filter((rows) => rows.length > 1).length;
   if (duplicateLeftKeys > 0) {
     warnings.push(`Left table contains ${duplicateLeftKeys} duplicate key group(s); joined rows may be repeated.`);
@@ -169,8 +240,8 @@ export function joinTables(input, options = {}) {
     `Left rows: ${left.rows.length}`,
     `Right rows: ${right.rows.length}`,
     `Output rows: ${outputRows.length}`,
-    `Left key columns: ${leftKeyColumns.map((column) => column.label).join(", ") || "none"}`,
-    `Right key columns: ${rightKeyColumns.map((column) => column.label).join(", ") || "none"}`
+    `Left key columns: ${activeLeftKeyColumns.map((column) => column.label).join(", ") || "none"}`,
+    `Right key columns: ${activeRightKeyColumns.map((column) => column.label).join(", ") || "none"}`
   ].join("\n");
 
   return {

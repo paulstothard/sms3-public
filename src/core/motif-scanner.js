@@ -1,7 +1,7 @@
 import { findPatternMatches } from "./pattern.js";
 import { cleanSequence, complementDnaRnaSequence, makeSequenceContext } from "./sequence.js";
 
-const SUPPORTED_SYNTAXES = new Set(["exact", "iupac", "regex"]);
+const SUPPORTED_SYNTAXES = new Set(["exact", "iupac", "regex", "pwm"]);
 
 export const motifMatchTableColumns = [
   { id: "record", label: "Record", type: "string" },
@@ -49,9 +49,81 @@ function makeMatchRow(recordTitle, sequence, motif, match, strand = "+") {
     end: match.end,
     length: match.length,
     ...makeSequenceContext(sequence, match.start, match.end),
-    score: null,
+    score: match.score ?? null,
     description: motif.description
   };
+}
+
+function normalizePwmBase(base) {
+  const upper = String(base ?? "").toUpperCase();
+  return upper === "U" ? "T" : upper;
+}
+
+function normalizePwmThreshold(value, fallback = 85) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) {
+    return fallback;
+  }
+  return Math.min(100, Math.max(0, parsed));
+}
+
+function scorePwmWindow(sequence, startIndex, motif) {
+  const weights = motif.pwm?.weights ?? [];
+  const alphabet = motif.pwm?.alphabet ?? ["A", "C", "G", "T"];
+  if (weights.length === 0) {
+    throw new Error("PWM motif is missing weights.");
+  }
+  let rawScore = 0;
+  for (let offset = 0; offset < weights.length; offset += 1) {
+    const base = normalizePwmBase(sequence[startIndex + offset]);
+    const column = weights[offset];
+    const weight = Array.isArray(column) ? column[alphabet.indexOf(base)] : column[base];
+    if (weight === undefined) {
+      return null;
+    }
+    rawScore += weight;
+  }
+  const minScore = Number(motif.pwm.minScore);
+  const maxScore = Number(motif.pwm.maxScore);
+  const denominator = maxScore - minScore;
+  const relativeScore = denominator === 0 ? 100 : ((rawScore - minScore) / denominator) * 100;
+  return {
+    rawScore,
+    relativeScore
+  };
+}
+
+function findPwmMatches(sequence, motif, options = {}, context = {}) {
+  const length = motif.pwm?.weights?.length ?? 0;
+  if (length <= 0) {
+    throw new Error("PWM motif length is zero.");
+  }
+  if (sequence.length < length) {
+    return [];
+  }
+  const threshold = normalizePwmThreshold(options.pwmThresholdPercent);
+  const allowOverlaps = options.allowOverlaps !== false;
+  const matches = [];
+  for (let index = 0; index <= sequence.length - length; index += 1) {
+    if (index % 4096 === 0) {
+      context.throwIfCancelled?.();
+    }
+    const score = scorePwmWindow(sequence, index, motif);
+    if (!score || score.relativeScore < threshold) {
+      continue;
+    }
+    matches.push({
+      start: index + 1,
+      end: index + length,
+      length,
+      matchedText: sequence.slice(index, index + length),
+      score: Number(score.relativeScore.toFixed(2))
+    });
+    if (!allowOverlaps) {
+      index += length - 1;
+    }
+  }
+  return matches;
 }
 
 function shouldScanReverse(motif, options = {}) {
@@ -64,7 +136,7 @@ function shouldScanReverse(motif, options = {}) {
   return motif.match?.strand === "both" || options.strand === "both";
 }
 
-function scanMotif(recordTitle, sequence, motif, options = {}) {
+function scanMotif(recordTitle, sequence, motif, options = {}, context = {}) {
   const warnings = [];
 
   if (!SUPPORTED_SYNTAXES.has(motif.syntax)) {
@@ -81,10 +153,13 @@ function scanMotif(recordTitle, sequence, motif, options = {}) {
     caseInsensitive: true
   };
   const rows = [];
+  const matchFinder = motif.syntax === "pwm"
+    ? (sourceSequence) => findPwmMatches(sourceSequence, motif, options, context)
+    : (sourceSequence) => findPatternMatches(sourceSequence, motif.pattern, patternOptions, context);
 
   try {
     rows.push(
-      ...findPatternMatches(sequence, motif.pattern, patternOptions).map((match) =>
+      ...matchFinder(sequence).map((match) =>
         makeMatchRow(recordTitle, sequence, motif, match, "+")
       )
     );
@@ -96,7 +171,7 @@ function scanMotif(recordTitle, sequence, motif, options = {}) {
     const reverseSequence = reverseComplement(sequence);
     try {
       rows.push(
-        ...findPatternMatches(reverseSequence, motif.pattern, patternOptions).map((match) =>
+        ...matchFinder(reverseSequence).map((match) =>
           makeMatchRow(
             recordTitle,
             sequence,
@@ -105,7 +180,8 @@ function scanMotif(recordTitle, sequence, motif, options = {}) {
               start: sequence.length - match.end + 1,
               end: sequence.length - match.start + 1,
               length: match.length,
-              matchedText: match.matchedText
+              matchedText: match.matchedText,
+              score: match.score
             },
             "-"
           )
@@ -171,7 +247,8 @@ export function scanMotifRecords(record, motifs, options = {}) {
     rows,
     warnings,
     charactersRemoved: cleaned.removedCount,
-    sequenceLength: cleaned.sequence.length
+    sequenceLength: cleaned.sequence.length,
+    sequence: cleaned.sequence
   };
 }
 
@@ -219,7 +296,7 @@ export async function scanMotifRecordsWithContext(record, motifs, options = {}, 
       continue;
     }
 
-    const result = scanMotif(title, cleaned.sequence, motif, options);
+    const result = scanMotif(title, cleaned.sequence, motif, options, context);
     rows.push(...result.rows);
     warnings.push(...result.warnings);
   }
@@ -228,6 +305,7 @@ export async function scanMotifRecordsWithContext(record, motifs, options = {}, 
     rows,
     warnings,
     charactersRemoved: cleaned.removedCount,
-    sequenceLength: cleaned.sequence.length
+    sequenceLength: cleaned.sequence.length,
+    sequence: cleaned.sequence
   };
 }

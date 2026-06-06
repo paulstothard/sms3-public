@@ -7,6 +7,7 @@ import {
   makeCodonAlignmentTsv,
   makeClustal,
   makeColoredAlignmentSvg,
+  makeColoredCodonAlignmentSvg,
   makePairwiseCodonAlignmentReport,
   makePairwiseCodonAlignmentText,
   makePairwiseAlignmentReport,
@@ -18,14 +19,14 @@ import {
 import { makeTableStream, makeTextStream, makeToolResult } from "../../core/workflow.js";
 
 const OUTPUT_FORMATS = new Set(["report", "alignment-text", "aligned-fasta", "clustal", "tsv", "svg-color"]);
-const CODON_OUTPUT_FORMATS = new Set(["report", "alignment-text", "codon-fasta", "protein-fasta", "tsv"]);
+const CODON_OUTPUT_FORMATS = new Set(["report", "alignment-text", "codon-fasta", "protein-fasta", "tsv", "svg-color"]);
 
 function normalizeOutputFormat(value) {
-  return OUTPUT_FORMATS.has(value) ? value : "alignment-text";
+  return OUTPUT_FORMATS.has(value) ? value : "svg-color";
 }
 
 function normalizeCodonOutputFormat(value) {
-  return CODON_OUTPUT_FORMATS.has(value) ? value : "alignment-text";
+  return CODON_OUTPUT_FORMATS.has(value) ? value : "svg-color";
 }
 
 function makeEmptyResult(warnings) {
@@ -141,26 +142,30 @@ export async function runPairwiseAlignCodingDna(input, options = {}, context = {
   const codonFasta = makeAlignedCodonFasta(prepared.records, prepared.alignment, options.lineWidth ? Number.parseInt(options.lineWidth, 10) * 3 : 60);
   const proteinFasta = makeAlignedProteinFromCodonsFasta(prepared.records, prepared.alignment, options.lineWidth);
   const tsv = makeCodonAlignmentTsv(prepared.alignment);
+  const svg = makeColoredCodonAlignmentSvg(prepared.records, prepared.alignment, options.lineWidth);
   const outputs = {
     report,
     "alignment-text": alignmentText,
     "codon-fasta": codonFasta,
     "protein-fasta": proteinFasta,
-    tsv
+    tsv,
+    "svg-color": svg
   };
   const extensions = {
     report: "txt",
     "alignment-text": "txt",
     "codon-fasta": "fasta",
     "protein-fasta": "fasta",
-    tsv: "tsv"
+    tsv: "tsv",
+    "svg-color": "svg"
   };
   const mimeTypes = {
     report: "text/plain;charset=utf-8",
     "alignment-text": "text/plain;charset=utf-8",
     "codon-fasta": "text/plain;charset=utf-8",
     "protein-fasta": "text/plain;charset=utf-8",
-    tsv: "text/tab-separated-values;charset=utf-8"
+    tsv: "text/tab-separated-values;charset=utf-8",
+    "svg-color": "image/svg+xml;charset=utf-8"
   };
 
   context.reportProgress?.({ phase: "finished", progress: 1 });
@@ -180,7 +185,9 @@ export async function runPairwiseAlignCodingDna(input, options = {}, context = {
       alignmentText: makeTextStream(alignmentText, "text/plain"),
       codonFasta: makeTextStream(codonFasta, "text/x-fasta"),
       proteinFasta: makeTextStream(proteinFasta, "text/x-fasta"),
-      table: makeTableStream(codonAlignmentTableColumns, prepared.alignment.codonColumns, "pairwise-coding-dna-alignment")
-    }
+      table: makeTableStream(codonAlignmentTableColumns, prepared.alignment.codonColumns, "pairwise-coding-dna-alignment"),
+      ...(outputFormat === "svg-color" ? { coloredSvg: makeTextStream(svg, "image/svg+xml") } : {})
+    },
+    visual: outputFormat === "svg-color" ? { svg } : undefined
   });
 }

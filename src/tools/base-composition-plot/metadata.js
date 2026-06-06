@@ -20,11 +20,11 @@ const TABLE_COLUMNS = [
 export const baseCompositionPlotMetadata = {
   id: "base-composition-plot",
   name: "Base Composition Plot",
-  category: "Analyze DNA/RNA",
-  tags: ["DNA", "RNA", "GC", "composition", "plot", "workflow"],
+  category: "Sequence Analysis",
+  tags: ["DNA", "RNA", "raw", "GC", "composition", "plot"],
   summary: "Plot sliding-window DNA/RNA base composition, GC/AT content, and skew metrics.",
   inputType: "DNA/RNA sequence",
-  outputType: "Plot, report, table",
+  outputType: "Base composition plot, report, table",
   runInWorker: true,
   workerModule: "../tools/base-composition-plot/run.js",
   workerExport: "runBaseCompositionPlotWorker",
@@ -42,7 +42,17 @@ export const baseCompositionPlotMetadata = {
     ]
   },
   options: [
-    { id: "keepGaps", type: "checkbox", label: "Keep gap characters (. and -)", defaultValue: false },
+    {
+      id: "windowMode",
+      type: "radio",
+      label: "Window settings",
+      defaultValue: "auto",
+      choices: [
+        { value: "auto", label: "Auto window and step" },
+        { value: "custom", label: "Custom window and step" }
+      ],
+      help: "Auto keeps all records on one plot by choosing one shared window size and step size from the cleaned record lengths. When records differ greatly in length, the shared window may be too broad for shorter records or too detailed for longer records; use Custom when one record needs a specific window."
+    },
     {
       id: "windowSize",
       type: "number",
@@ -50,7 +60,8 @@ export const baseCompositionPlotMetadata = {
       defaultValue: 100,
       min: 1,
       max: 1000000,
-      step: 1
+      step: 1,
+      visibleWhen: { option: "windowMode", value: "custom" }
     },
     {
       id: "stepSize",
@@ -59,7 +70,8 @@ export const baseCompositionPlotMetadata = {
       defaultValue: 25,
       min: 1,
       max: 1000000,
-      step: 1
+      step: 1,
+      visibleWhen: { option: "windowMode", value: "custom" }
     },
     {
       id: "metric",
@@ -75,14 +87,47 @@ export const baseCompositionPlotMetadata = {
       ]
     },
     {
+      id: "positionAxis",
+      type: "radio",
+      label: "Position axis",
+      defaultValue: "auto",
+      visibleWhen: { option: "outputFormat", value: "plot" },
+      choices: [
+        { value: "auto", label: "Auto" },
+        { value: "absolute", label: "Sequence position" },
+        { value: "relative", label: "Relative position (%)" }
+      ],
+      help: "Auto uses sequence positions unless record lengths differ greatly, then uses relative position so shorter records do not collapse against the left edge."
+    },
+    {
+      id: "showLegend",
+      type: "checkbox",
+      label: "Show plot legend",
+      defaultValue: true,
+      visibleWhen: { option: "outputFormat", value: "plot" }
+    },
+    {
+      id: "pointMarkers",
+      type: "radio",
+      label: "Point markers",
+      defaultValue: "auto",
+      visibleWhen: { option: "outputFormat", value: "plot" },
+      choices: [
+        { value: "auto", label: "Auto" },
+        { value: "show", label: "Show" },
+        { value: "hide", label: "Hide" }
+      ],
+      help: "Auto hides markers on dense line plots but keeps them for sparse series and single-window records."
+    },
+    {
       id: "outputFormat",
       type: "radio",
       label: "Output format",
-      defaultValue: "svg-plot",
+      defaultValue: "plot",
       choices: [
         { value: "report", label: "Summary report" },
-        { value: "tsv", label: "TSV table" },
-        { value: "svg-plot", label: "SVG composition plot" }
+        { value: "tsv", label: "Table" },
+        { value: "plot", label: "Base composition plot" }
       ]
     },
     {

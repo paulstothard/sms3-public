@@ -1,4 +1,4 @@
-import { cleanSequence, complementDnaRnaSequence } from "./sequence.js";
+import { cleanSequence, complementDnaRnaSequence, makeSequenceContext } from "./sequence.js";
 
 export const vectorContaminationTableColumns = [
   { id: "record", label: "Record", type: "string" },
@@ -16,7 +16,11 @@ export const vectorContaminationTableColumns = [
   { id: "score", label: "Score", type: "number" },
   { id: "confidence", label: "Confidence", type: "string" },
   { id: "source_database", label: "Source database", type: "string" },
-  { id: "source_accession", label: "Source accession", type: "string" }
+  { id: "source_accession", label: "Source accession", type: "string" },
+  { id: "left_context", label: "Left context", type: "string" },
+  { id: "matched_text", label: "Matched text", type: "string" },
+  { id: "right_context", label: "Right context", type: "string" },
+  { id: "context_sequence", label: "Context sequence", type: "string" }
 ];
 
 const sensitivityDefaults = {
@@ -182,11 +186,12 @@ function classifyConfidence(length, percentIdentity) {
   return "low";
 }
 
-function makeRow(recordTitle, queryLength, orientedHit, strand, referenceRecord) {
+function makeRow(recordTitle, queryLength, originalSequence, orientedHit, strand, referenceRecord) {
   const queryStart = orientedHit.queryStart + 1;
   const queryEnd = orientedHit.queryEnd + 1;
   const originalStart = strand === "+" ? queryStart : queryLength - queryEnd + 1;
   const originalEnd = strand === "+" ? queryEnd : queryLength - queryStart + 1;
+  const context = makeSequenceContext(originalSequence, originalStart, originalEnd);
 
   return {
     record: recordTitle,
@@ -204,7 +209,8 @@ function makeRow(recordTitle, queryLength, orientedHit, strand, referenceRecord)
     score: orientedHit.alignedLength - orientedHit.mismatches * 5 - orientedHit.gaps,
     confidence: classifyConfidence(orientedHit.alignedLength, orientedHit.percentIdentity),
     source_database: referenceRecord.sourceDatabase ?? "",
-    source_accession: referenceRecord.sourceAccession ?? ""
+    source_accession: referenceRecord.sourceAccession ?? "",
+    ...context
   };
 }
 
@@ -220,7 +226,23 @@ function rowKey(row) {
   ].join("\t");
 }
 
-function deduplicateAndSortRows(rows, maxHitsPerRecord) {
+function rowOverlap(left, right) {
+  return Math.max(0, Math.min(left.query_end, right.query_end) - Math.max(left.query_start, right.query_start) + 1);
+}
+
+function rowsRepresentSameHit(left, right) {
+  if (left.record !== right.record || left.reference_id !== right.reference_id || left.strand !== right.strand) {
+    return false;
+  }
+  const overlap = rowOverlap(left, right);
+  if (overlap <= 0) {
+    return false;
+  }
+  const shorterLength = Math.min(left.aligned_length, right.aligned_length);
+  return overlap / Math.max(1, shorterLength) >= 0.8;
+}
+
+function deduplicateMergeAndSortRows(rows, maxHitsPerRecord) {
   const byKey = new Map();
   for (const row of rows) {
     const key = rowKey(row);
@@ -230,15 +252,37 @@ function deduplicateAndSortRows(rows, maxHitsPerRecord) {
     }
   }
 
-  return [...byKey.values()]
+  const sortedCandidates = [...byKey.values()].sort(
+    (left, right) =>
+      right.score - left.score ||
+      right.aligned_length - left.aligned_length ||
+      left.record.localeCompare(right.record) ||
+      left.query_start - right.query_start ||
+      left.reference_id.localeCompare(right.reference_id)
+  );
+  const merged = [];
+  for (const row of sortedCandidates) {
+    if (merged.some((kept) => rowsRepresentSameHit(kept, row))) {
+      continue;
+    }
+    merged.push(row);
+  }
+
+  const sorted = merged
     .sort(
       (left, right) =>
         right.score - left.score ||
         left.record.localeCompare(right.record) ||
         left.query_start - right.query_start ||
         left.reference_id.localeCompare(right.reference_id)
-    )
-    .slice(0, maxHitsPerRecord);
+    );
+
+  return {
+    rows: sorted.slice(0, maxHitsPerRecord),
+    totalCandidateRows: rows.length,
+    totalMergedRows: sorted.length,
+    hitsOmitted: Math.max(0, sorted.length - maxHitsPerRecord)
+  };
 }
 
 function getKmerMap(referenceIndex) {
@@ -254,7 +298,7 @@ function getKmerMap(referenceIndex) {
   return runtimeKmerMaps.get(referenceIndex);
 }
 
-function scanOrientedSequence(recordTitle, sequence, strand, referenceIndex, referenceLookup, thresholds) {
+function scanOrientedSequence(recordTitle, sequence, originalSequence, strand, referenceIndex, referenceLookup, thresholds, context = {}) {
   const rows = [];
   const kmerLength = referenceIndex.kmerLength;
   if (!Number.isInteger(kmerLength) || kmerLength <= 0 || sequence.length < kmerLength) {
@@ -263,12 +307,18 @@ function scanOrientedSequence(recordTitle, sequence, strand, referenceIndex, ref
   const kmerMap = getKmerMap(referenceIndex);
 
   for (let queryIndex = 0; queryIndex <= sequence.length - kmerLength; queryIndex += 1) {
+    if (queryIndex % 250 === 0) {
+      context.throwIfCancelled?.();
+    }
     const kmer = sequence.slice(queryIndex, queryIndex + kmerLength);
     if (!/^[ACGT]+$/.test(kmer)) {
       continue;
     }
     const seeds = kmerMap[kmer] ?? [];
-    for (const seed of seeds) {
+    for (const [seedIndex, seed] of seeds.entries()) {
+      if (seedIndex > 0 && seedIndex % 500 === 0) {
+        context.throwIfCancelled?.();
+      }
       const referenceRecord = referenceLookup.get(seed.recordId);
       if (!referenceRecord) {
         continue;
@@ -284,7 +334,7 @@ function scanOrientedSequence(recordTitle, sequence, strand, referenceIndex, ref
         hit.alignedLength >= thresholds.minimumAlignedLength &&
         hit.percentIdentity >= thresholds.minimumPercentIdentity
       ) {
-        rows.push(makeRow(recordTitle, sequence.length, hit, strand, referenceRecord));
+        rows.push(makeRow(recordTitle, sequence.length, originalSequence, hit, strand, referenceRecord));
       }
     }
   }
@@ -292,7 +342,7 @@ function scanOrientedSequence(recordTitle, sequence, strand, referenceIndex, ref
   return rows;
 }
 
-export function scanVectorContaminationRecord(record, referenceIndex, options = {}) {
+export function scanVectorContaminationRecord(record, referenceIndex, options = {}, context = {}) {
   const title = record.title ?? "sequence";
   const cleaned = cleanSequence(record.sequence ?? "", {
     alphabet: "dna-rna",
@@ -327,16 +377,19 @@ export function scanVectorContaminationRecord(record, referenceIndex, options = 
   const thresholds = getThresholds(options);
   const scanBothStrands = options.strand !== "forward";
   const rows = [
-    ...scanOrientedSequence(title, cleaned.sequence, "+", referenceIndex, referenceLookup, thresholds),
+    ...scanOrientedSequence(title, cleaned.sequence, cleaned.sequence, "+", referenceIndex, referenceLookup, thresholds, context),
     ...(scanBothStrands
-      ? scanOrientedSequence(title, reverseComplement(cleaned.sequence), "-", referenceIndex, referenceLookup, thresholds)
+      ? scanOrientedSequence(title, reverseComplement(cleaned.sequence), cleaned.sequence, "-", referenceIndex, referenceLookup, thresholds, context)
       : [])
   ];
 
+  const summarized = deduplicateMergeAndSortRows(rows, thresholds.maxHitsPerRecord);
+
   return {
-    rows: deduplicateAndSortRows(rows, thresholds.maxHitsPerRecord),
+    ...summarized,
     warnings,
     charactersRemoved: cleaned.removedCount,
-    sequenceLength: cleaned.sequence.length
+    sequenceLength: cleaned.sequence.length,
+    cleanedSequence: cleaned.sequence
   };
 }

@@ -477,3 +477,31 @@ ORIGIN
      5281 tgggaaaagt tactgtagcc gacgttttgg cggcgcaacc tgtgacgaca aatctgctca
      5341 aatttatgcg cgcttcgata aaaatgattg gcgtatccaa cctgca
 //`;
+
+export const proteinRecordParserExample = `ID   P53_HUMAN               Reviewed;         393 AA.
+AC   P04637;
+DE   RecName: Full=Cellular tumor antigen p53;
+GN   Name=TP53;
+OS   Homo sapiens (Human).
+FT   CHAIN           1..393       Cellular tumor antigen p53
+FT   REGION          1..92        Transactivation domain
+FT   REGION          64..92       Proline-rich region
+FT   DNA_BIND        102..292     DNA-binding domain
+FT   REGION          319..360     Oligomerization domain
+FT   REGION          363..393     Basic C-terminal regulatory region
+FT   MOTIF           305..322     Nuclear localization signal
+FT   SITE            15..15       Phosphoserine
+FT   SITE            20..20       Phosphoserine
+FT   SITE            248..248     DNA contact residue
+FT   SITE            273..273     DNA contact residue
+FT   MOD_RES         372..372     Acetyllysine
+FT   MOD_RES         382..382     Methyllysine/acetyllysine
+SQ   SEQUENCE   393 AA;  43522 MW;  1F2B3C4D5E6F7890 CRC64;
+     MEEPQSDPSV EPPLSQETFS DLWKLLPENN VLSPLPSQAM DDLMLSPDDI EQWFTEDPGP
+     DEAPRMPEAA PPVAPAPAAP TPAAPAPAPS WPLSSSVPSQ KTYQGSYGFR LGFLHSGTAK
+     SVTCTYSPAL NKMFCQLAKT CPVQLWVDST PPPGTRVRAM AIYKQSQHMT EVVRRCPHHE
+     RCSDSDGLAP PQHLIRVEGN LRVEYLDDRN TFRHSVVVPY EPPEVGSDCT TIHYNYMCNS
+     SCMGGMNRRP ILTIITLEDS SGNLLGRNSF EVRVCACPGR DRRTEEENLR KKGEPHHELP
+     PGSTKRALPN NTSSSPQPKK KPLDGEYFTL QIRGRERFEM FRELNEALEL KDAQAGKEPG
+     GSRAHSSHLK SKKGQSTSRH KKLMFKTEGP DSD
+//`;

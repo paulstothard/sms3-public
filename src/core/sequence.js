@@ -169,6 +169,18 @@ export function complementDnaRnaSequence(sequence, options = {}) {
   }).join("");
 }
 
+export function getGroupedSequenceNumberWidth(sequence, options = {}) {
+  const sourceLength = String(sequence ?? "").length;
+  const groupSize = Math.max(1, Number.parseInt(options.groupSize, 10) || 10);
+  const groupsPerLine = Math.max(1, Number.parseInt(options.groupsPerLine, 10) || 6);
+  const startPosition = Number.parseInt(options.startPosition, 10) || 1;
+  const lineSize = groupSize * groupsPerLine;
+  const lastLineStart = sourceLength > 0
+    ? startPosition + Math.floor((sourceLength - 1) / lineSize) * lineSize
+    : startPosition;
+  return Math.max(8, String(startPosition).length, String(lastLineStart).length);
+}
+
 export function groupSequence(sequence, options = {}) {
   const source = String(sequence ?? "");
   const groupSize = Math.max(1, Number.parseInt(options.groupSize, 10) || 10);
@@ -176,6 +188,7 @@ export function groupSequence(sequence, options = {}) {
   const showPositionNumbers = options.showPositionNumbers === true;
   const startPosition = Number.parseInt(options.startPosition, 10) || 1;
   const lineSize = groupSize * groupsPerLine;
+  const numberWidth = getGroupedSequenceNumberWidth(source, options);
   const lines = [];
 
   for (let index = 0; index < source.length; index += lineSize) {
@@ -189,7 +202,7 @@ export function groupSequence(sequence, options = {}) {
     const grouped = groups.join(" ");
     if (showPositionNumbers) {
       const position = startPosition + index;
-      lines.push(`${String(position).padStart(8, " ")} ${grouped}`);
+      lines.push(`${String(position).padStart(numberWidth, " ")} ${grouped}`);
     } else {
       lines.push(grouped);
     }

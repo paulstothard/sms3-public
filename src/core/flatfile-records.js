@@ -217,12 +217,13 @@ function parseGenbankRecord(recordText) {
   const sequence = cleanSequence(recordText.match(/\nORIGIN\s*\n([\s\S]*?)(?:\n\/\/|$)/)?.[1] ?? "");
   const features = parseGenbankFeatures(recordText);
   const accession = fields.get("VERSION") || fields.get("ACCESSION") || locusParts[0] || "GenBank record";
+  const isProtein = locusParts.some((part) => part.toLowerCase() === "aa");
   return makeParsedRecord({
-    format: recordText.startsWith("LOCUS") ? "GenBank/DDBJ" : "GenBank",
+    format: isProtein ? "GenPept" : recordText.startsWith("LOCUS") ? "GenBank/DDBJ" : "GenBank",
     accession,
     title: normalizeHeaderValue(fields.get("DEFINITION") || accession),
     organism: normalizeHeaderValue(fields.get("SOURCE") || ""),
-    molecule: locusParts.includes("RNA") ? "RNA" : locusParts.includes("DNA") ? "DNA" : "",
+    molecule: isProtein ? "protein" : locusParts.includes("RNA") ? "RNA" : locusParts.includes("DNA") ? "DNA" : "",
     topology: locusParts.includes("circular") ? "circular" : locusParts.includes("linear") ? "linear" : "",
     sequence,
     features
@@ -344,7 +345,7 @@ function makeParsedRecord({ format, accession, title, organism, molecule, topolo
       product: getFirstQualifier(feature, "product"),
       protein_id: getFirstQualifier(feature, "protein_id"),
       translation,
-      nucleotide: sequence && feature.key === "CDS" ? extractLocationSequence(sequence, parsedLocation) : ""
+      nucleotide: sequence && feature.key === "CDS" && molecule !== "protein" ? extractLocationSequence(sequence, parsedLocation) : ""
     };
   });
   return {

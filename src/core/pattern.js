@@ -95,16 +95,26 @@ export function makePatternRegex(pattern, options = {}) {
   return new RegExp(source, flags);
 }
 
-export function findPatternMatches(sequence, pattern, options = {}) {
+const CANCELLATION_CHECK_INTERVAL = 4096;
+
+function checkPatternCancellation(context, counter) {
+  if (counter % CANCELLATION_CHECK_INTERVAL === 0) {
+    context.throwIfCancelled?.();
+  }
+}
+
+export function findPatternMatches(sequence, pattern, options = {}, context = {}) {
   const regex = makePatternRegex(pattern, options);
   const allowOverlaps = options.allowOverlaps !== false;
   const matches = [];
 
+  context.throwIfCancelled?.();
   if (allowOverlaps) {
     if (options.patternMode === "regex") {
       const stickyFlags = `${regex.flags.replace(/[gy]/g, "")}y`;
       const stickyRegex = new RegExp(regex.source, stickyFlags);
       for (let index = 0; index < sequence.length; index += 1) {
+        checkPatternCancellation(context, index);
         stickyRegex.lastIndex = index;
         const match = stickyRegex.exec(sequence);
         if (!match) {
@@ -126,7 +136,10 @@ export function findPatternMatches(sequence, pattern, options = {}) {
     const globalFlags = `${regex.flags.replaceAll("g", "")}g`;
     const lookaheadRegex = new RegExp(`(?=(${regex.source}))`, globalFlags);
     let match;
+    let iterations = 0;
     while ((match = lookaheadRegex.exec(sequence)) !== null) {
+      iterations += 1;
+      checkPatternCancellation(context, iterations);
       const matchedText = match[1] ?? "";
       lookaheadRegex.lastIndex = match.index + 1;
       if (matchedText.length === 0) {
@@ -145,7 +158,10 @@ export function findPatternMatches(sequence, pattern, options = {}) {
   const globalFlags = `${regex.flags.replaceAll("g", "")}g`;
   const globalRegex = new RegExp(regex.source, globalFlags);
   let match;
+  let iterations = 0;
   while ((match = globalRegex.exec(sequence)) !== null) {
+    iterations += 1;
+    checkPatternCancellation(context, iterations);
     if (match[0].length === 0) {
       throw new Error("Pattern matched zero characters.");
     }

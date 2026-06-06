@@ -3,11 +3,15 @@ import { primerOligoPropertyColumns } from "../../core/primer-oligo-properties.j
 export const primerOligoPropertiesMetadata = {
   id: "primer-oligo-properties",
   name: "Primer / Oligo Basic Properties",
-  category: "Analyze Sequences",
-  tags: ["DNA", "FASTA", "GC", "primer", "statistics", "workflow"],
+  category: "Restriction, PCR & Primers",
+  tags: ["DNA", "RNA", "raw", "FASTA", "GC", "primer", "statistics"],
   summary: "Calculate basic DNA/RNA oligo length, base counts, GC percent, simple Tm estimate, and reverse complement.",
-  inputType: "DNA/RNA oligo FASTA or raw sequence",
-  outputType: "Oligo property report or TSV table",
+  inputType: "DNA/RNA primer/oligo sequence or FASTA records",
+  outputType: "Oligo property report or table",
+  fileInput: {
+    dropLabel: "Drop one plain-text DNA/RNA primer/oligo sequence or FASTA records here",
+    accept: ".fa,.fasta,.fna,.ffn,.fa.gz,.fasta.gz,.fna.gz,.ffn.gz,.gz,.txt,.seq"
+  },
   workflow: {
     inputs: [{ id: "input", kind: "text", mediaType: "text/plain" }],
     outputs: [
@@ -32,7 +36,7 @@ export const primerOligoPropertiesMetadata = {
           defaultValue: "report",
           choices: [
             { value: "report", label: "Summary report" },
-            { value: "tsv", label: "Property TSV" }
+            { value: "tsv", label: "Property table" }
           ]
         }
       ]

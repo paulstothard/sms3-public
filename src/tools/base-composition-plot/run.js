@@ -1,10 +1,23 @@
 import { parseSequenceInput } from "../../core/fasta.js";
+import {
+  makeLinePlotSpec,
+  makeObservablePlotConfig,
+  makePlaceholderSvg,
+  renderLinePlotSvg
+} from "../../core/plot-renderer.js";
 import { cleanDnaRnaSequence } from "../../core/sequence.js";
 import { makeTableStream, makeTextStream, makeToolResult } from "../../core/workflow.js";
 import { baseCompositionPlotTableColumns } from "./metadata.js";
 
 const TSV_COLUMNS = baseCompositionPlotTableColumns.map((column) => column.id);
 const SVG_PLOT_WINDOW_THRESHOLD = 5000;
+const SVG_PLOT_RECORD_WARNING_THRESHOLD = 8;
+const SVG_PLOT_LENGTH_RATIO_WARNING_THRESHOLD = 20;
+const RELATIVE_AXIS_LENGTH_RATIO_THRESHOLD = 20;
+const AUTO_POINT_MARKER_THRESHOLD = 300;
+const AUTO_WINDOW_TARGET_TOTAL_ROWS = 1200;
+const AUTO_WINDOW_MAX_ROWS_PER_RECORD = 80;
+const AUTO_WINDOW_MIN_ROWS_PER_RECORD = 20;
 const METRIC_LABELS = {
   gc_percent: "GC percent",
   at_percent: "AT percent",
@@ -16,6 +29,72 @@ const METRIC_LABELS = {
 function normalizePositiveInteger(value, fallback, max = 1000000) {
   const parsed = Number.parseInt(value, 10);
   return Number.isFinite(parsed) ? Math.min(max, Math.max(1, parsed)) : fallback;
+}
+
+function roundToNiceInteger(value) {
+  const positive = Math.max(1, Number(value) || 1);
+  const magnitude = 10 ** Math.floor(Math.log10(positive));
+  const candidates = [1, 2, 5, 10].map((scale) => scale * magnitude);
+  const closest = candidates.reduce((best, candidate) =>
+    Math.abs(candidate - positive) < Math.abs(best - positive) ? candidate : best
+  );
+  return Math.max(1, Math.round(closest));
+}
+
+function median(values) {
+  if (values.length === 0) {
+    return 0;
+  }
+  const sorted = [...values].sort((a, b) => a - b);
+  const middle = Math.floor(sorted.length / 2);
+  return sorted.length % 2 === 0
+    ? (sorted[middle - 1] + sorted[middle]) / 2
+    : sorted[middle];
+}
+
+function estimateWindowRowCount(lengths, windowSize, stepSize) {
+  return lengths.reduce((total, length) => {
+    if (length <= 0) {
+      return total;
+    }
+    const effectiveWindow = Math.min(windowSize, length);
+    return total + Math.floor((length - effectiveWindow) / stepSize) + 1;
+  }, 0);
+}
+
+function chooseAutoWindowSettings(lengths) {
+  const positiveLengths = lengths.filter((length) => length > 0);
+  if (positiveLengths.length === 0) {
+    return { windowSize: 100, stepSize: 25 };
+  }
+
+  const referenceLength = median(positiveLengths);
+  const targetRowsPerRecord = Math.max(
+    AUTO_WINDOW_MIN_ROWS_PER_RECORD,
+    Math.min(AUTO_WINDOW_MAX_ROWS_PER_RECORD, Math.floor(AUTO_WINDOW_TARGET_TOTAL_ROWS / positiveLengths.length))
+  );
+  const windowSize = Math.min(
+    Math.max(...positiveLengths),
+    1000000,
+    roundToNiceInteger(Math.max(10, referenceLength / 20))
+  );
+  let stepSize = Math.max(
+    1,
+    Math.min(windowSize, 1000000, roundToNiceInteger(Math.max(1, referenceLength / targetRowsPerRecord)))
+  );
+
+  while (
+    estimateWindowRowCount(positiveLengths, windowSize, stepSize) > SVG_PLOT_WINDOW_THRESHOLD * 0.75 &&
+    stepSize < Math.max(...positiveLengths)
+  ) {
+    const nextStepSize = Math.min(1000000, roundToNiceInteger(stepSize * 2));
+    if (nextStepSize <= stepSize) {
+      break;
+    }
+    stepSize = nextStepSize;
+  }
+
+  return { windowSize, stepSize };
 }
 
 function formatNumber(value, digits = 3) {
@@ -175,13 +254,16 @@ function summarizeRows(rows) {
   };
 }
 
-function makeReport(records, metric) {
+function makeReport(records, metric, windowSettings) {
   const lines = [];
   for (const record of records) {
     const summary = summarizeRows(record.rows);
     lines.push(`${record.title} base composition plot`);
     lines.push(`Length: ${record.cleanedLength}`);
     lines.push(`Windows: ${record.rows.length}`);
+    lines.push(`Window settings: ${windowSettings.windowMode === "auto" ? "auto" : "custom"}`);
+    lines.push(`Window size: ${windowSettings.windowSize}`);
+    lines.push(`Step size: ${windowSettings.stepSize}`);
     lines.push(`Metric: ${METRIC_LABELS[metric]}`);
     if (summary.min && summary.max) {
       lines.push(`Minimum: ${formatNumber(summary.min.metric_value)} at ${summary.min.window_start}-${summary.min.window_end}`);
@@ -196,119 +278,128 @@ function makeReport(records, metric) {
   return lines.join("\n").trimEnd();
 }
 
-function escapeXml(value) {
-  return String(value)
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;");
+function getLengthRatio(records) {
+  const lengths = records.map((record) => record.cleanedLength).filter((length) => length > 0);
+  const minLength = Math.min(...lengths);
+  const maxLength = Math.max(...lengths);
+  if (!Number.isFinite(minLength) || !Number.isFinite(maxLength) || minLength <= 0) {
+    return { minLength: 0, maxLength: 0, ratio: 1 };
+  }
+  return { minLength, maxLength, ratio: maxLength / minLength };
 }
 
-function makeSvgPlot(records, metric) {
-  const width = 920;
-  const height = 420;
-  const margin = { top: 92, right: 30, bottom: 62, left: 62 };
-  const plotWidth = width - margin.left - margin.right;
-  const plotHeight = height - margin.top - margin.bottom;
-  const colors = ["#0f766e", "#2563eb", "#a33a3a", "#7c3aed", "#64748b"];
-  const plotRecords = records.filter((record) => record.rows.some((row) => row.metric_value !== null));
-  const title = `${METRIC_LABELS[metric]} composition plot`;
-  const values = plotRecords.flatMap((record) => record.rows.map((row) => row.metric_value).filter((value) => value !== null));
-  const maxPosition = Math.max(1, ...plotRecords.flatMap((record) => record.rows.map((row) => row.position)));
-  const yMin = metric.endsWith("_skew") ? -1 : 0;
-  const yMax = metric.endsWith("_skew") ? 1 : 100;
-  const scaleX = (position) => margin.left + ((position - 1) / Math.max(1, maxPosition - 1)) * plotWidth;
-  const scaleY = (value) => margin.top + ((yMax - value) / (yMax - yMin)) * plotHeight;
-  const legendRows = Math.ceil(Math.min(plotRecords.length, colors.length) / 2);
-  const parts = [
-    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${height}" role="img" aria-label="${escapeXml(title)}">`,
-    "<style>text{font-family:Inter,Arial,sans-serif;font-size:12px;fill:#172026}.axis{stroke:#5c6b75;stroke-width:1}.grid{stroke:#dfe7ec;stroke-width:1}.zero{stroke:#172026;stroke-width:1.2}.line{fill:none;stroke-width:2.4}.dot{stroke:#fff;stroke-width:1}</style>",
-    `<rect width="${width}" height="${height}" fill="#ffffff"></rect>`,
-    `<text x="${margin.left}" y="28" style="font-size:18px;font-weight:700">${escapeXml(title)}</text>`
-  ];
-
-  if (plotRecords.length > 0) {
-    parts.push(`<g aria-label="Legend">`);
-    parts.push(`<rect x="${margin.left}" y="38" width="${width - margin.left - margin.right}" height="${Math.max(26, legendRows * 20 + 8)}" rx="4" fill="#f8fafc" stroke="#dfe7ec"></rect>`);
-    plotRecords.slice(0, colors.length).forEach((record, index) => {
-      const legendX = margin.left + 14 + (index % 2) * 330;
-      const legendY = 55 + Math.floor(index / 2) * 20;
-      const color = colors[index % colors.length];
-      parts.push(`<line stroke="${color}" stroke-width="3" x1="${legendX}" y1="${legendY}" x2="${legendX + 26}" y2="${legendY}"></line>`);
-      parts.push(`<text x="${legendX + 34}" y="${legendY + 4}">${escapeXml(record.title)}</text>`);
-    });
-    parts.push(`</g>`);
+function getPositionAxisMode(records, requestedMode) {
+  if (requestedMode === "relative" || requestedMode === "absolute") {
+    return requestedMode;
   }
+  return getLengthRatio(records).ratio >= RELATIVE_AXIS_LENGTH_RATIO_THRESHOLD ? "relative" : "absolute";
+}
 
-  for (const tick of metric.endsWith("_skew") ? [-1, -0.5, 0, 0.5, 1] : [0, 25, 50, 75, 100]) {
-    const y = scaleY(tick);
-    parts.push(`<line class="grid" x1="${margin.left}" y1="${y.toFixed(2)}" x2="${width - margin.right}" y2="${y.toFixed(2)}"></line>`);
-    parts.push(`<text x="16" y="${(y + 4).toFixed(2)}">${tick}</text>`);
-  }
-
-  parts.push(`<line class="axis" x1="${margin.left}" y1="${margin.top}" x2="${margin.left}" y2="${height - margin.bottom}"></line>`);
-  parts.push(`<line class="axis" x1="${margin.left}" y1="${height - margin.bottom}" x2="${width - margin.right}" y2="${height - margin.bottom}"></line>`);
-  const xTicks = [...new Set([1, Math.round(maxPosition * 0.25), Math.round(maxPosition * 0.5), Math.round(maxPosition * 0.75), Math.round(maxPosition)])]
-    .filter((tick) => tick >= 1 && tick <= maxPosition);
-  for (const tick of xTicks) {
-    const x = scaleX(tick);
-    parts.push(`<line class="grid" x1="${x.toFixed(2)}" y1="${margin.top}" x2="${x.toFixed(2)}" y2="${height - margin.bottom}"></line>`);
-    parts.push(`<text x="${(x - 8).toFixed(2)}" y="${height - margin.bottom + 18}">${tick}</text>`);
-  }
-  if (metric.endsWith("_skew")) {
-    const zeroY = scaleY(0);
-    parts.push(`<line class="zero" x1="${margin.left}" y1="${zeroY.toFixed(2)}" x2="${width - margin.right}" y2="${zeroY.toFixed(2)}"></line>`);
-  }
-
-  plotRecords.forEach((record, index) => {
-    const color = colors[index % colors.length];
-    const points = record.rows
-      .filter((row) => row.metric_value !== null)
-      .map((row) => `${scaleX(row.position).toFixed(2)},${scaleY(row.metric_value).toFixed(2)}`);
-    if (points.length > 1) {
-      parts.push(`<polyline class="line" stroke="${color}" points="${points.join(" ")}"></polyline>`);
-    }
-    for (const row of record.rows.filter((item) => item.metric_value !== null)) {
-      parts.push(
-        `<circle class="dot" cx="${scaleX(row.position).toFixed(2)}" cy="${scaleY(row.metric_value).toFixed(2)}" r="3" fill="${color}"><title>${escapeXml(`${record.title} ${row.window_start}-${row.window_end}: ${formatNumber(row.metric_value)}`)}</title></circle>`
-      );
-    }
+function makeCompositionPlotSpec(records, metric, options) {
+  const title = `${METRIC_LABELS[metric]} base composition plot`;
+  const yDomain = metric.endsWith("_skew") ? [-1, 1] : [0, 100];
+  const positionAxisUsed = getPositionAxisMode(records, options.positionAxis);
+  const series = records
+    .filter((record) => record.rows.some((row) => row.metric_value !== null))
+    .map((record) => ({
+      id: record.title,
+      label: record.title,
+      points: record.rows
+        .filter((row) => row.metric_value !== null)
+        .map((row) => ({
+          x: positionAxisUsed === "relative" && record.cleanedLength > 0
+            ? (row.position / record.cleanedLength) * 100
+            : row.position,
+          y: row.metric_value,
+          title: `${record.title} ${row.window_start}-${row.window_end}: ${formatNumber(row.metric_value)}`
+        }))
+    }));
+  const spec = makeLinePlotSpec({
+    title,
+    xLabel: positionAxisUsed === "relative" ? "Relative position (% of sequence)" : "Position (window midpoint)",
+    yLabel: METRIC_LABELS[metric],
+    yDomain,
+    series,
+    showLegend: options.showLegend,
+    pointMarkers: options.pointMarkers,
+    pointMarkerThreshold: AUTO_POINT_MARKER_THRESHOLD,
+    notes: [
+      `Window size: ${options.windowSize} bases; step size: ${options.stepSize} bases.`,
+      positionAxisUsed === "relative"
+        ? "Plot x-axis uses each window midpoint as a percent of that record length."
+        : "Plot x-axis uses sequence positions from each record."
+    ]
   });
-
-  if (values.length === 0) {
-    parts.push(`<text x="${margin.left}" y="${margin.top + 28}">No plottable windows.</text>`);
-  }
-  parts.push(`<text x="${margin.left}" y="${height - 18}">Position (window midpoint)</text>`);
-  parts.push("</svg>");
-  return parts.join("\n");
+  return { ...spec, xAxisMode: positionAxisUsed };
 }
 
-function makePlaceholderSvg(title, lines) {
-  const safeLines = lines.map((line) => escapeXml(line));
-  const height = 120 + safeLines.length * 20;
-  return [
-    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 ${height}" role="img" aria-label="${escapeXml(title)}">`,
-    "<style>",
-    ".title{font:700 18px system-ui,sans-serif;fill:#263238}",
-    ".note{font:12px system-ui,sans-serif;fill:#5c6b75}",
-    "</style>",
-    `<rect x="0" y="0" width="760" height="${height}" fill="white"/>`,
-    `<text class="title" x="24" y="34">${escapeXml(title)}</text>`,
-    ...safeLines.map((line, index) => `<text class="note" x="24" y="${66 + index * 20}">${line}</text>`),
-    "</svg>"
-  ].join("");
+function getSvgPlotWarnings(analyzedRecords, tableRows, requestedPositionAxis, positionAxisUsed, pointMarkers) {
+  const warnings = [];
+  const plotRecords = analyzedRecords.filter((record) => record.rows.some((row) => row.metric_value !== null));
+  const { minLength, maxLength, ratio } = getLengthRatio(plotRecords);
+  if (plotRecords.length > SVG_PLOT_RECORD_WARNING_THRESHOLD) {
+    warnings.push(
+      `Base composition plot contains ${plotRecords.length} records. The legend may be crowded; consider TSV output or plotting fewer records.`
+    );
+  }
+  if (positionAxisUsed === "relative" && requestedPositionAxis === "auto" && ratio >= RELATIVE_AXIS_LENGTH_RATIO_THRESHOLD) {
+    warnings.push(
+      `Base composition plot used a relative position axis because record lengths range from ${minLength} to ${maxLength} bases. Table output keeps absolute coordinates.`
+    );
+  } else if (positionAxisUsed === "absolute" && ratio >= SVG_PLOT_LENGTH_RATIO_WARNING_THRESHOLD) {
+    warnings.push(
+      `Base composition plot uses one position axis for records ranging from ${minLength} to ${maxLength} bases; shorter records may be visually compressed.`
+    );
+  }
+  if (tableRows.length > SVG_PLOT_WINDOW_THRESHOLD * 0.75) {
+    warnings.push(
+      `Base composition plot has ${tableRows.length} windows and may be visually dense; use TSV output or larger step/window settings for detailed review.`
+    );
+  }
+  if (pointMarkers === "auto" && tableRows.length > AUTO_POINT_MARKER_THRESHOLD) {
+    warnings.push(
+      `Point markers are hidden automatically for dense plots with more than ${AUTO_POINT_MARKER_THRESHOLD} windows; lines still show the plotted metric.`
+    );
+  }
+  return warnings;
 }
 
 function normalizeBaseCompositionOptions(options = {}) {
   const metric = Object.hasOwn(METRIC_LABELS, options.metric) ? options.metric : "gc_percent";
+  const hasLegacyExplicitWindow = options.windowMode === undefined && (options.windowSize !== undefined || options.stepSize !== undefined);
+  const windowMode = options.windowMode === "custom" || hasLegacyExplicitWindow ? "custom" : "auto";
+  const requestedOutputFormat = new Set(["report", "tsv", "plot", "svg-plot", "sms3-svg", "observable-svg"]).has(options.outputFormat)
+    ? options.outputFormat
+    : "plot";
   return {
     metric,
+    windowMode,
     windowSize: normalizePositiveInteger(options.windowSize, 100),
     stepSize: normalizePositiveInteger(options.stepSize, 25),
-    keepGaps: options.keepGaps === true,
-    outputFormat: new Set(["report", "tsv", "svg-plot"]).has(options.outputFormat)
-      ? options.outputFormat
-      : "svg-plot"
+    positionAxis: new Set(["auto", "absolute", "relative"]).has(options.positionAxis)
+      ? options.positionAxis
+      : "auto",
+    showLegend: options.showLegend !== false,
+    pointMarkers: new Set(["auto", "show", "hide"]).has(options.pointMarkers)
+      ? options.pointMarkers
+      : "auto",
+    outputFormat: ["svg-plot", "sms3-svg", "observable-svg"].includes(requestedOutputFormat)
+      ? "plot"
+      : requestedOutputFormat
+  };
+}
+
+function resolveWindowSettings(normalizedOptions, lengths) {
+  if (normalizedOptions.windowMode === "custom") {
+    return {
+      windowMode: "custom",
+      windowSize: normalizedOptions.windowSize,
+      stepSize: normalizedOptions.stepSize
+    };
+  }
+  return {
+    windowMode: "auto",
+    ...chooseAutoWindowSettings(lengths)
   };
 }
 
@@ -319,16 +410,34 @@ function makeBaseCompositionResult({
   basesProcessed,
   charactersRemoved,
   metric,
+  windowMode,
+  windowSize,
+  stepSize,
+  positionAxis,
+  showLegend,
+  pointMarkers,
   outputFormat
 }) {
   const tableRows = analyzedRecords.flatMap((record) => record.rows);
-  const reportOutput = makeReport(analyzedRecords, metric);
+  const windowSettings = { windowMode, windowSize, stepSize };
+  const reportOutput = makeReport(analyzedRecords, metric, windowSettings);
+  const isSvgOutput = outputFormat === "plot";
+  const svgRenderer = "observable-plot";
   let svgPlot = "";
-  if (outputFormat === "svg-plot" && tableRows.length <= SVG_PLOT_WINDOW_THRESHOLD) {
-    svgPlot = makeSvgPlot(analyzedRecords, metric);
-  } else if (outputFormat === "svg-plot") {
+  let plotSpec = null;
+  if (isSvgOutput && tableRows.length <= SVG_PLOT_WINDOW_THRESHOLD) {
+    plotSpec = makeCompositionPlotSpec(analyzedRecords, metric, {
+      windowSize,
+      stepSize,
+      positionAxis,
+      showLegend,
+      pointMarkers
+    });
+    warnings.push(...getSvgPlotWarnings(analyzedRecords, tableRows, positionAxis, plotSpec.xAxisMode, pointMarkers));
+    svgPlot = renderLinePlotSvg(plotSpec);
+  } else if (isSvgOutput) {
     warnings.push(
-      `SVG composition plot was not drawn because this run has ${tableRows.length} windows. Use TSV table output or larger window/step settings for dense analyses.`
+      `Base composition plot was not drawn because this run has ${tableRows.length} windows. Use table output or larger window/step settings for dense analyses.`
     );
     svgPlot = makePlaceholderSvg("Base composition plot not drawn", [
       `${tableRows.length} windows across ${recordsProcessed} records.`,
@@ -341,11 +450,11 @@ function makeBaseCompositionResult({
   return makeToolResult({
     output,
     download: {
-      filename: `base-composition-plot.${outputFormat === "tsv" ? "tsv" : outputFormat === "svg-plot" ? "svg" : "txt"}`,
+      filename: `base-composition-plot.${outputFormat === "tsv" ? "tsv" : isSvgOutput ? "svg" : "txt"}`,
       mimeType:
         outputFormat === "tsv"
           ? "text/tab-separated-values"
-          : outputFormat === "svg-plot"
+          : isSvgOutput
             ? "image/svg+xml;charset=utf-8"
             : "text/plain;charset=utf-8"
     },
@@ -353,12 +462,26 @@ function makeBaseCompositionResult({
     recordsProcessed,
     basesProcessed,
     charactersRemoved,
+    optionsUsed: {
+      outputFormat,
+      windowMode,
+      windowSize,
+      stepSize
+    },
     streams: {
       report: makeTextStream(reportOutput, "text/plain"),
       table: makeTableStream(baseCompositionPlotTableColumns, tableRows, "base-composition-plot"),
-      ...(outputFormat === "svg-plot" ? { plot: makeTextStream(svgPlot, "image/svg+xml") } : {})
+      ...(isSvgOutput ? { plot: makeTextStream(svgPlot, "image/svg+xml") } : {})
     },
-    visual: outputFormat === "svg-plot" ? { svg: svgPlot } : undefined
+    visual: isSvgOutput
+      ? {
+          svg: svgPlot,
+          renderer: svgRenderer,
+          plotSpec,
+          observablePlotConfig: plotSpec ? makeObservablePlotConfig(plotSpec) : undefined,
+          pngDownload: true
+        }
+      : undefined
   });
 }
 
@@ -377,14 +500,14 @@ export function runBaseCompositionPlot(input, options = {}) {
     });
   }
 
-  const analyzedRecords = [];
+  const cleanedRecords = [];
   let basesProcessed = 0;
   let charactersRemoved = 0;
 
   for (const record of records) {
     const cleaned = cleanDnaRnaSequence(record.sequence, {
       preserveCase: false,
-      keepGaps: normalizedOptions.keepGaps
+      keepGaps: false
     });
     charactersRemoved += cleaned.removedCount;
     basesProcessed += cleaned.sequence.length;
@@ -394,13 +517,23 @@ export function runBaseCompositionPlot(input, options = {}) {
     if (cleaned.sequence.length === 0) {
       warnings.push(`${record.title}: no DNA/RNA sequence characters were found.`);
     }
-    if (cleaned.sequence.length > 0 && cleaned.sequence.length < normalizedOptions.windowSize) {
-      warnings.push(`${record.title}: sequence shorter than requested window; used a ${cleaned.sequence.length}-base window.`);
+    cleanedRecords.push({ title: record.title, sequence: cleaned.sequence });
+  }
+
+  const windowSettings = resolveWindowSettings(
+    normalizedOptions,
+    cleanedRecords.map((record) => record.sequence.length)
+  );
+  const analyzedRecords = [];
+
+  for (const record of cleanedRecords) {
+    if (record.sequence.length > 0 && record.sequence.length < windowSettings.windowSize) {
+      warnings.push(`${record.title}: sequence shorter than window size; used a ${record.sequence.length}-base window.`);
     }
-    const rows = makeWindowRows(record.title, cleaned.sequence, normalizedOptions);
+    const rows = makeWindowRows(record.title, record.sequence, { ...normalizedOptions, ...windowSettings });
     analyzedRecords.push({
       title: record.title,
-      cleanedLength: cleaned.sequence.length,
+      cleanedLength: record.sequence.length,
       rows
     });
   }
@@ -412,6 +545,12 @@ export function runBaseCompositionPlot(input, options = {}) {
     basesProcessed,
     charactersRemoved,
     metric: normalizedOptions.metric,
+    windowMode: windowSettings.windowMode,
+    windowSize: windowSettings.windowSize,
+    stepSize: windowSettings.stepSize,
+    positionAxis: normalizedOptions.positionAxis,
+    showLegend: normalizedOptions.showLegend,
+    pointMarkers: normalizedOptions.pointMarkers,
     outputFormat: normalizedOptions.outputFormat
   });
 }
@@ -432,7 +571,7 @@ export async function runBaseCompositionPlotWorker(input, options = {}, context 
     });
   }
 
-  const analyzedRecords = [];
+  const cleanedRecords = [];
   let basesProcessed = 0;
   let charactersRemoved = 0;
 
@@ -440,7 +579,7 @@ export async function runBaseCompositionPlotWorker(input, options = {}, context 
     await context.yieldIfNeeded?.();
     const cleaned = cleanDnaRnaSequence(record.sequence, {
       preserveCase: false,
-      keepGaps: normalizedOptions.keepGaps
+      keepGaps: false
     });
     charactersRemoved += cleaned.removedCount;
     basesProcessed += cleaned.sequence.length;
@@ -450,20 +589,37 @@ export async function runBaseCompositionPlotWorker(input, options = {}, context 
     if (cleaned.sequence.length === 0) {
       warnings.push(`${record.title}: no DNA/RNA sequence characters were found.`);
     }
-    if (cleaned.sequence.length > 0 && cleaned.sequence.length < normalizedOptions.windowSize) {
-      warnings.push(`${record.title}: sequence shorter than requested window; used a ${cleaned.sequence.length}-base window.`);
+    cleanedRecords.push({ title: record.title, sequence: cleaned.sequence });
+    context.reportProgress?.({
+      phase: "cleaning-records",
+      progress: 0.05 + ((index + 1) / records.length) * 0.2,
+      recordsProcessed: index + 1,
+      totalRecords: records.length
+    });
+  }
+
+  const windowSettings = resolveWindowSettings(
+    normalizedOptions,
+    cleanedRecords.map((record) => record.sequence.length)
+  );
+  const analyzedRecords = [];
+
+  for (const [index, record] of cleanedRecords.entries()) {
+    await context.yieldIfNeeded?.();
+    if (record.sequence.length > 0 && record.sequence.length < windowSettings.windowSize) {
+      warnings.push(`${record.title}: sequence shorter than window size; used a ${record.sequence.length}-base window.`);
     }
-    const rows = await makeWindowRowsWithContext(record.title, cleaned.sequence, normalizedOptions, context);
+    const rows = await makeWindowRowsWithContext(record.title, record.sequence, { ...normalizedOptions, ...windowSettings }, context);
     analyzedRecords.push({
       title: record.title,
-      cleanedLength: cleaned.sequence.length,
+      cleanedLength: record.sequence.length,
       rows
     });
     context.reportProgress?.({
       phase: "building-windows",
-      progress: 0.05 + ((index + 1) / records.length) * 0.85,
+      progress: 0.25 + ((index + 1) / cleanedRecords.length) * 0.65,
       recordsProcessed: index + 1,
-      totalRecords: records.length
+      totalRecords: cleanedRecords.length
     });
   }
 
@@ -476,6 +632,12 @@ export async function runBaseCompositionPlotWorker(input, options = {}, context 
     basesProcessed,
     charactersRemoved,
     metric: normalizedOptions.metric,
+    windowMode: windowSettings.windowMode,
+    windowSize: windowSettings.windowSize,
+    stepSize: windowSettings.stepSize,
+    positionAxis: normalizedOptions.positionAxis,
+    showLegend: normalizedOptions.showLegend,
+    pointMarkers: normalizedOptions.pointMarkers,
     outputFormat: normalizedOptions.outputFormat
   });
 }

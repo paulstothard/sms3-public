@@ -13,6 +13,20 @@ const OPERATION_LABELS = {
   count: "Count occurrences"
 };
 
+function describeOperation(options, result) {
+  if (OPERATION_LABELS[options.operation]) {
+    return OPERATION_LABELS[options.operation];
+  }
+  const steps = ["Clean"];
+  if (result.settings?.removeDuplicates) {
+    steps.push("remove duplicates");
+  }
+  if (result.settings?.sortItems) {
+    steps.push("sort");
+  }
+  return steps.join(", ");
+}
+
 function getOutputFormat(options) {
   if (options.outputFormat === "report") {
     return "report";
@@ -23,9 +37,12 @@ function getOutputFormat(options) {
   return "list";
 }
 
-export function runLineListCleaner(input, options = {}) {
-  const result = processLineList(input, options);
-  const operationLabel = OPERATION_LABELS[options.operation ?? "sort-unique"] ?? "Clean list";
+export function runLineListCleaner(input, options = {}, context = {}) {
+  context.reportProgress?.({ phase: "parsing-input", progress: 0.05 });
+  const result = processLineList(input, options, context);
+  const operationLabel = describeOperation(options, result);
+  context.reportProgress?.({ phase: "building-output", progress: 0.85 });
+  context.throwIfCancelled?.();
   const report = summarizeLineList(result, operationLabel);
   const outputFormat = getOutputFormat(options);
   const tsv = result.countRows.length > 0

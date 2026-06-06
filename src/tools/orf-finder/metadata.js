@@ -4,12 +4,12 @@ import { orfTableColumns } from "./run.js";
 export const orfFinderMetadata = {
   id: "orf-finder",
   name: "ORF Finder",
-  category: "Analyze DNA/RNA",
-  tags: ["DNA", "RNA", "ORF", "genetic code", "translation"],
+  category: "Sequence Analysis",
+  tags: ["DNA", "RNA", "raw", "ORF", "genetic code", "translation"],
   summary:
     "Find open reading frames on forward and reverse-complement strands with selectable genetic codes and length filters.",
   inputType: "DNA/RNA sequence",
-  outputType: "ORF report, table, FASTA, overview",
+  outputType: "ORF report, table, FASTA, overview, or linear DNA sequence viewer",
   runInWorker: true,
   workerModule: "../tools/orf-finder/run.js",
   workerExport: "runOrfFinderWorker",
@@ -26,6 +26,7 @@ export const orfFinderMetadata = {
       { id: "nucleotideFasta", kind: "text", mediaType: "text/x-fasta" },
       { id: "proteinFasta", kind: "text", mediaType: "text/x-fasta" },
       { id: "overview", kind: "text", mediaType: "image/svg+xml" },
+      { id: "viewer", kind: "viewer", viewerType: "dna-sequence-viewer" },
       { id: "orfRecords", kind: "orf-records", schema: "orf-finder" },
       { id: "warnings", kind: "warnings" }
     ]
@@ -87,7 +88,7 @@ export const orfFinderMetadata = {
       id: "sortBy",
       type: "radio",
       label: "Sort ORFs",
-      help: "Changes report order only. Coordinates and ORF sequences are not recalculated.",
+      help: "Changes the displayed ORF order and ORF numbering in reports, tables, FASTA, maps, and viewers. Coordinates and ORF sequences are not recalculated.",
       defaultValue: "start",
       choices: [
         { value: "start", label: "Start coordinate" },
@@ -96,7 +97,7 @@ export const orfFinderMetadata = {
         { value: "complete", label: "Complete ORFs first" }
       ]
     },
-    { id: "includeStopInProtein", type: "checkbox", label: "Include stop symbol in protein FASTA", defaultValue: false, help: "Adds an asterisk at the end of complete translated ORFs in protein FASTA output." },
+    { id: "includeStopInProtein", type: "checkbox", label: "Include stop symbol in protein FASTA", defaultValue: false, visibleWhen: { option: "outputFormat", value: "protein-fasta" }, help: "Adds an asterisk at the end of complete translated ORFs in protein FASTA output." },
     {
       id: "outputFormat",
       type: "radio",
@@ -104,10 +105,12 @@ export const orfFinderMetadata = {
       defaultValue: "report",
       choices: [
         { value: "report", label: "Summary report" },
-        { value: "tsv", label: "TSV table" },
+        { value: "tsv", label: "Table" },
         { value: "nucleotide-fasta", label: "Nucleotide FASTA" },
         { value: "protein-fasta", label: "Protein FASTA" },
-        { value: "svg-overview", label: "SVG overview" }
+        { value: "svg-overview", label: "ORF overview plot" },
+        { value: "interactive-viewer", label: "Linear DNA sequence viewer" },
+        { value: "interactive-circular-viewer", label: "Circular DNA sequence viewer" }
       ]
     },
     {

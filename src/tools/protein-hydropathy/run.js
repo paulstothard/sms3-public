@@ -5,9 +5,16 @@ import {
   getProteinGravy,
   getProteinHydropathyProfile
 } from "../../core/sequence.js";
+import {
+  makeLinePlotSpec,
+  makeObservablePlotConfig,
+  makePlaceholderSvg,
+  renderLinePlotSvg
+} from "../../core/plot-renderer.js";
 import { makeTableStream, makeTextStream, makeToolResult } from "../../core/workflow.js";
 
 const SVG_PLOT_WINDOW_THRESHOLD = 5000;
+const DEFAULT_WINDOW_SIZE = 19;
 
 export const proteinHydropathyTableColumns = [
   { id: "record", label: "Record", type: "string" },
@@ -28,7 +35,7 @@ function formatNumber(value, digits = 3) {
 function normalizeWindowSize(value) {
   const parsed = Number.parseInt(value, 10);
   if (!Number.isFinite(parsed)) {
-    return 9;
+    return DEFAULT_WINDOW_SIZE;
   }
   return Math.min(1001, Math.max(1, parsed));
 }
@@ -169,112 +176,43 @@ function makeTsv(rows) {
   ].join("\n");
 }
 
-function escapeXml(value) {
-  return String(value)
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;");
-}
-
-function makeSvgPlot(records) {
-  const width = 920;
-  const height = 420;
-  const margin = { top: 92, right: 28, bottom: 62, left: 58 };
-  const plotWidth = width - margin.left - margin.right;
-  const plotHeight = height - margin.top - margin.bottom;
-  const axisY = margin.top + plotHeight / 2;
-  const colors = ["#0f766e", "#b7791f", "#2563eb", "#a33a3a", "#64748b"];
+function makeHydropathyPlotSpec(records) {
   const plotRecords = records.filter((record) => record.profile.rows.some((row) => row.hydropathy !== null));
-  const title = plotRecords.length === 1 ? `${plotRecords[0].title} hydropathy` : "Protein hydropathy";
-  const maxPosition = Math.max(1, ...plotRecords.flatMap((record) => record.profile.rows.map((row) => row.position)));
-  const yMin = -4.5;
-  const yMax = 4.5;
-  const scaleX = (position) => margin.left + ((position - 1) / Math.max(1, maxPosition - 1)) * plotWidth;
-  const scaleY = (value) => margin.top + ((yMax - value) / (yMax - yMin)) * plotHeight;
-  const legendRows = Math.ceil(Math.min(plotRecords.length, colors.length) / 2);
-  const parts = [
-    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${height}" role="img" aria-label="${escapeXml(title)} plot">`,
-    "<style>text{font-family:Inter,Arial,sans-serif;font-size:12px;fill:#172026}.axis{stroke:#5c6b75;stroke-width:1}.grid{stroke:#dfe7ec;stroke-width:1}.zero{stroke:#172026;stroke-width:1.2}.line{fill:none;stroke-width:2.4}.dot{stroke:#fff;stroke-width:1}.label{font-size:11px}</style>",
-    `<rect width="${width}" height="${height}" fill="#ffffff"></rect>`,
-    `<text x="${margin.left}" y="28" style="font-size:18px;font-weight:700">${escapeXml(title)}</text>`
-  ];
-
-  if (plotRecords.length > 0) {
-    parts.push(`<g aria-label="Legend">`);
-    parts.push(`<rect x="${margin.left}" y="38" width="${width - margin.left - margin.right}" height="${Math.max(26, legendRows * 20 + 8)}" rx="4" fill="#f8fafc" stroke="#dfe7ec"></rect>`);
-    plotRecords.slice(0, colors.length).forEach((record, index) => {
-      const legendX = margin.left + 14 + (index % 2) * 330;
-      const legendY = 55 + Math.floor(index / 2) * 20;
-      const color = colors[index % colors.length];
-      parts.push(`<line stroke="${color}" stroke-width="3" x1="${legendX}" y1="${legendY}" x2="${legendX + 26}" y2="${legendY}"></line>`);
-      parts.push(`<text class="label" x="${legendX + 34}" y="${legendY + 4}">${escapeXml(record.title)}</text>`);
-    });
-    parts.push(`</g>`);
-  }
-
-  for (let tick = -4; tick <= 4; tick += 2) {
-    const y = scaleY(tick);
-    parts.push(`<line class="grid" x1="${margin.left}" y1="${y.toFixed(2)}" x2="${width - margin.right}" y2="${y.toFixed(2)}"></line>`);
-    parts.push(`<text x="18" y="${(y + 4).toFixed(2)}">${tick}</text>`);
-  }
-
-  parts.push(`<line class="axis" x1="${margin.left}" y1="${margin.top}" x2="${margin.left}" y2="${height - margin.bottom}"></line>`);
-  parts.push(`<line class="axis" x1="${margin.left}" y1="${height - margin.bottom}" x2="${width - margin.right}" y2="${height - margin.bottom}"></line>`);
-  parts.push(`<line class="zero" x1="${margin.left}" y1="${axisY.toFixed(2)}" x2="${width - margin.right}" y2="${axisY.toFixed(2)}"></line>`);
-  const xTicks = [...new Set([1, Math.round(maxPosition * 0.25), Math.round(maxPosition * 0.5), Math.round(maxPosition * 0.75), Math.round(maxPosition)])]
-    .filter((tick) => tick >= 1 && tick <= maxPosition);
-  for (const tick of xTicks) {
-    const x = scaleX(tick);
-    parts.push(`<line class="grid" x1="${x.toFixed(2)}" y1="${margin.top}" x2="${x.toFixed(2)}" y2="${height - margin.bottom}"></line>`);
-    parts.push(`<text x="${(x - 8).toFixed(2)}" y="${height - margin.bottom + 18}">${tick}</text>`);
-  }
-
-  plotRecords.forEach((record, index) => {
-    const color = colors[index % colors.length];
-    const points = record.profile.rows
-      .filter((row) => row.hydropathy !== null)
-      .map((row) => `${scaleX(row.position).toFixed(2)},${scaleY(row.hydropathy).toFixed(2)}`);
-    if (points.length > 1) {
-      parts.push(`<polyline class="line" stroke="${color}" points="${points.join(" ")}"></polyline>`);
-    }
-    for (const row of record.profile.rows.filter((item) => item.hydropathy !== null)) {
-      parts.push(
-        `<circle class="dot" cx="${scaleX(row.position).toFixed(2)}" cy="${scaleY(row.hydropathy).toFixed(2)}" r="3" fill="${color}"><title>${escapeXml(`${record.title} ${row.windowStart}-${row.windowEnd}: ${formatNumber(row.hydropathy)}`)}</title></circle>`
-      );
-    }
+  return makeLinePlotSpec({
+    title: "Protein hydropathy plot",
+    xLabel: "Residue position (window midpoint)",
+    yLabel: "Kyte-Doolittle hydropathy",
+    yDomain: [-4.5, 4.5],
+    width: 920,
+    showLegend: true,
+    pointMarkers: "auto",
+    pointMarkerThreshold: 140,
+    series: plotRecords.map((record) => ({
+      id: record.title,
+      label: record.title,
+      points: record.profile.rows
+        .filter((row) => row.hydropathy !== null)
+        .map((row) => ({
+          x: row.position,
+          y: row.hydropathy,
+          title: `${record.title} ${row.windowStart}-${row.windowEnd}: ${formatNumber(row.hydropathy)}`
+        }))
+    })),
+    notes: ["Positive values are more hydrophobic; each point is an averaged sliding window."]
   });
-
-  parts.push(`<text x="${margin.left}" y="${height - 18}">Position is the window midpoint; positive Kyte-Doolittle values are more hydrophobic.</text>`);
-  parts.push("</svg>");
-  return parts.join("\n");
-}
-
-function makePlaceholderSvg(title, lines) {
-  const safeLines = lines.map((line) => escapeXml(line));
-  const height = 120 + safeLines.length * 20;
-  return [
-    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 ${height}" role="img" aria-label="${escapeXml(title)}">`,
-    "<style>",
-    ".title{font:700 18px system-ui,sans-serif;fill:#263238}",
-    ".note{font:12px system-ui,sans-serif;fill:#5c6b75}",
-    "</style>",
-    `<rect x="0" y="0" width="760" height="${height}" fill="white"/>`,
-    `<text class="title" x="24" y="34">${escapeXml(title)}</text>`,
-    ...safeLines.map((line, index) => `<text class="note" x="24" y="${66 + index * 20}">${line}</text>`),
-    "</svg>"
-  ].join("");
 }
 
 function makeHydropathyResult({ analyzedRecords, warnings, recordsProcessed, basesProcessed, charactersRemoved, outputFormat }) {
   const tableRows = makeTableRows(analyzedRecords);
   const reportOutput = makeReport(analyzedRecords);
+  let plotSpec = null;
   let svgPlot = "";
   if (outputFormat === "svg-plot" && tableRows.length <= SVG_PLOT_WINDOW_THRESHOLD) {
-    svgPlot = makeSvgPlot(analyzedRecords);
+    plotSpec = makeHydropathyPlotSpec(analyzedRecords);
+    svgPlot = renderLinePlotSvg(plotSpec);
   } else if (outputFormat === "svg-plot") {
     warnings.push(
-      `SVG hydropathy plot was not drawn because this run has ${tableRows.length} windows. Use TSV table output or a larger window size for dense analyses.`
+      `Protein hydropathy plot was not drawn because this run has ${tableRows.length} windows. Use table output or a larger window size for dense analyses.`
     );
     svgPlot = makePlaceholderSvg("Protein hydropathy plot not drawn", [
       `${tableRows.length} windows across ${recordsProcessed} records.`,
@@ -305,14 +243,22 @@ function makeHydropathyResult({ analyzedRecords, warnings, recordsProcessed, bas
       table: makeTableStream(proteinHydropathyTableColumns, tableRows, "protein-hydropathy"),
       ...(outputFormat === "svg-plot" ? { plot: makeTextStream(svgPlot, "image/svg+xml") } : {})
     },
-    visual: outputFormat === "svg-plot" ? { svg: svgPlot } : undefined
+    visual: outputFormat === "svg-plot"
+      ? {
+          svg: svgPlot,
+          renderer: "observable-plot",
+          plotSpec,
+          observablePlotConfig: plotSpec ? makeObservablePlotConfig(plotSpec) : undefined,
+          pngDownload: true
+        }
+      : undefined
   });
 }
 
 export function runProteinHydropathy(input, options = {}) {
   const records = parseSequenceInput(input, "sequence");
   const warnings = [];
-  const windowSize = normalizeWindowSize(options.windowSize ?? 9);
+  const windowSize = normalizeWindowSize(options.windowSize ?? DEFAULT_WINDOW_SIZE);
   const outputFormat = normalizeOutputFormat(options.outputFormat);
 
   if (records.length === 0) {
@@ -332,7 +278,7 @@ export function runProteinHydropathy(input, options = {}) {
   for (const record of records) {
     const cleaned = cleanProteinSequence(record.sequence, {
       preserveCase: false,
-      keepGaps: options.keepGaps !== false
+      keepGaps: false
     });
     charactersRemoved += cleaned.removedCount;
     basesProcessed += cleaned.sequence.length;
@@ -349,7 +295,7 @@ export function runProteinHydropathy(input, options = {}) {
       (character) => !Object.hasOwn(KYTE_DOOLITTLE_HYDROPATHY, character)
     ).length;
     if (excludedSymbols > 0) {
-      warnings.push(`${record.title}: excluded ${excludedSymbols} ambiguous, uncommon, stop, or gap symbol(s) from hydropathy values.`);
+      warnings.push(`${record.title}: excluded ${excludedSymbols} ambiguous, uncommon, or stop symbol(s) from hydropathy values.`);
     }
     if (cleaned.sequence.length > 0 && cleaned.sequence.length < windowSize) {
       warnings.push(`${record.title}: sequence shorter than requested window; used a ${cleaned.sequence.length}-residue window.`);
@@ -377,7 +323,7 @@ export async function runProteinHydropathyWorker(input, options = {}, context = 
   context.reportProgress?.({ phase: "parsing-input", progress: 0.05 });
   const records = parseSequenceInput(input, "sequence");
   const warnings = [];
-  const windowSize = normalizeWindowSize(options.windowSize ?? 9);
+  const windowSize = normalizeWindowSize(options.windowSize ?? DEFAULT_WINDOW_SIZE);
   const outputFormat = normalizeOutputFormat(options.outputFormat);
 
   if (records.length === 0) {
@@ -398,7 +344,7 @@ export async function runProteinHydropathyWorker(input, options = {}, context = 
     await context.yieldIfNeeded?.();
     const cleaned = cleanProteinSequence(record.sequence, {
       preserveCase: false,
-      keepGaps: options.keepGaps !== false
+      keepGaps: false
     });
     charactersRemoved += cleaned.removedCount;
     basesProcessed += cleaned.sequence.length;
@@ -415,7 +361,7 @@ export async function runProteinHydropathyWorker(input, options = {}, context = 
       (character) => !Object.hasOwn(KYTE_DOOLITTLE_HYDROPATHY, character)
     ).length;
     if (excludedSymbols > 0) {
-      warnings.push(`${record.title}: excluded ${excludedSymbols} ambiguous, uncommon, stop, or gap symbol(s) from hydropathy values.`);
+      warnings.push(`${record.title}: excluded ${excludedSymbols} ambiguous, uncommon, or stop symbol(s) from hydropathy values.`);
     }
     if (cleaned.sequence.length > 0 && cleaned.sequence.length < windowSize) {
       warnings.push(`${record.title}: sequence shorter than requested window; used a ${cleaned.sequence.length}-residue window.`);

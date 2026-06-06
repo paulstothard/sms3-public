@@ -1,10 +1,12 @@
 import { fastaValidationTableColumns } from "../../core/fasta-validator.js";
+import { WHOLE_FASTA_SCAN_NOTE } from "../fasta-input-policy.js";
+import { makeFastaSourceInputOptions } from "../fasta-source-options.js";
 
 export const fastaValidatorNormalizerMetadata = {
   id: "fasta-validator-normalizer",
   name: "FASTA Summarizer",
-  category: "Prepare Sequences",
-  tags: ["DNA", "RNA", "protein", "FASTA", "format conversion", "statistics", "workflow"],
+  category: "FASTA",
+  tags: ["DNA", "RNA", "protein", "FASTA", "validation", "format conversion", "statistics"],
   summary: "Summarize FASTA records, unique titles, unique sequences, duplicate titles, duplicate sequences, and formatting issues.",
   inputType: "FASTA records",
   outputType: "Summary report, normalized FASTA, table",
@@ -23,19 +25,15 @@ export const fastaValidatorNormalizerMetadata = {
       { id: "warnings", kind: "warnings" }
     ]
   },
+  runInWorker: true,
+  workerModule: "../tools/fasta-validator-normalizer/run.js",
+  workerExport: "runFastaValidatorNormalizer",
   options: [
-    {
-      id: "lineWidth",
-      type: "number",
-      label: "Characters per output line",
-      defaultValue: 60,
-      min: 10,
-      max: 200
-    },
+    ...makeFastaSourceInputOptions(),
     {
       id: "checkReverseComplement",
       type: "checkbox",
-      label: "Check reverse-complement duplicates",
+      label: "Check for reverse-complement duplicates",
       defaultValue: false,
       help: "Also flags records whose sequence is the reverse complement of another FASTA record. Useful for DNA/RNA record QC."
     },
@@ -59,7 +57,7 @@ export const fastaValidatorNormalizerMetadata = {
     {
       id: "scopeNote",
       type: "note",
-      text: "This tool summarizes FASTA structure and duplicates. Use DNA/RNA or protein cleaning tools when you need alphabet-specific symbol filtering."
+      text: `This tool summarizes FASTA structure and duplicates. ${WHOLE_FASTA_SCAN_NOTE}`
     }
   ]
 };

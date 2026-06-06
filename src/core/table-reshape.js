@@ -68,10 +68,16 @@ function aggregateValues(values, mode) {
   return values[0];
 }
 
+function normalizeCell(value, trimCells) {
+  const text = String(value ?? "");
+  return trimCells ? text.trim() : text;
+}
+
 function reshapeLongToWide(parsed, options, warnings) {
   const idColumns = resolveColumns(parsed.columns, options.idColumns, warnings, "ID");
   const namesColumn = findColumn(parsed.columns, options.namesFrom);
   const valuesColumn = findColumn(parsed.columns, options.valuesFrom);
+  const trimCells = options.trimCells !== false;
   if (!namesColumn) {
     warnings.push(`Names-from column "${options.namesFrom ?? ""}" was not found.`);
   }
@@ -91,11 +97,12 @@ function reshapeLongToWide(parsed, options, warnings) {
   const outputColumnByName = new Map();
   const grouped = new Map();
   const aggregate = options.duplicateMode ?? "first";
+  let duplicateCellCount = 0;
 
   for (const row of parsed.rows) {
-    const idValues = idColumns.map((column) => String(row[column.id] ?? ""));
+    const idValues = idColumns.map((column) => normalizeCell(row[column.id], trimCells));
     const groupKey = JSON.stringify(idValues);
-    const wideName = String(row[namesColumn.id] ?? "").trim();
+    const wideName = normalizeCell(row[namesColumn.id], true);
     if (!wideName) {
       continue;
     }
@@ -114,8 +121,16 @@ function reshapeLongToWide(parsed, options, warnings) {
     const group = grouped.get(groupKey);
     if (!group.values.has(wideName)) {
       group.values.set(wideName, []);
+    } else {
+      duplicateCellCount += 1;
     }
-    group.values.get(wideName).push(row[valuesColumn.id] ?? "");
+    group.values.get(wideName).push(normalizeCell(row[valuesColumn.id], trimCells));
+  }
+
+  if (duplicateCellCount > 0) {
+    warnings.push(
+      `${duplicateCellCount} duplicate long-format value(s) were combined using "${aggregate}".`
+    );
   }
 
   const rows = [...grouped.values()].map((group) => {
@@ -134,6 +149,7 @@ function reshapeLongToWide(parsed, options, warnings) {
 function reshapeWideToLong(parsed, options, warnings) {
   const idColumns = resolveColumns(parsed.columns, options.idColumns, warnings, "ID");
   const valueColumns = resolveColumns(parsed.columns, options.valueColumns, warnings, "Value");
+  const trimCells = options.trimCells !== false;
   if (idColumns.length === 0 || valueColumns.length === 0) {
     return { columns: [], rows: [] };
   }
@@ -155,10 +171,10 @@ function reshapeWideToLong(parsed, options, warnings) {
     for (const valueColumn of valueColumns) {
       const outputRow = {};
       idColumns.forEach((column, index) => {
-        outputRow[outputColumns[index].id] = row[column.id] ?? "";
+        outputRow[outputColumns[index].id] = normalizeCell(row[column.id], trimCells);
       });
       outputRow[namesToColumn.id] = valueColumn.label;
-      outputRow[valuesToColumn.id] = row[valueColumn.id] ?? "";
+      outputRow[valuesToColumn.id] = normalizeCell(row[valueColumn.id], trimCells);
       rows.push(outputRow);
     }
   }
